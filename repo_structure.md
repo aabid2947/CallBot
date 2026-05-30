@@ -43,7 +43,8 @@ voicestream/
 │   ├── seed_test_request.py    # Seed the Md Aabid Hussain BookingRequest for Phase-2 testing
 │   ├── vps_info.sh             # Bash diagnostic dumped from VPS to inform deploy script
 │   ├── deploy_vps.sh           # Idempotent deploy: dnf, venv, systemd, nginx, Let's Encrypt
-│   └── guardrail.sh            # Free-tier watchdog (polices shell procs, exempts services)
+│   ├── guardrail.sh            # Free-tier watchdog (polices shell procs, exempts services)
+│   └── install_coturn.sh       # Self-hosted TURN on the same VPS (fixes consent-freshness drops)
 ├── tests/                      # Test suite
 │   ├── __init__.py             # Tests package marker
 │   ├── test_booking_request_persistence.py  # BookingRequest repo (CRUD, latest_active, outcome)
