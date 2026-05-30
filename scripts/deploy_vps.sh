@@ -146,6 +146,17 @@ fi
 .venv/bin/python -m pip install -q --upgrade pip wheel setuptools
 .venv/bin/python -m pip install -q -r requirements.txt
 .venv/bin/python -m pip install -q -e ".[dev,web]"
+
+# Pipecat pulls in opencv-python which links against X11/libxcb at import time.
+# AL2023 has no X11 stack (and we don't want it on a server), so swap to the
+# headless build — same cv2 API, no GUI deps.
+if .venv/bin/python -c "import cv2" 2>/dev/null \
+   && .venv/bin/python -m pip show -q opencv-python >/dev/null 2>&1; then
+    .venv/bin/python -m pip uninstall -y -q opencv-python
+    .venv/bin/python -m pip install -q opencv-python-headless
+    ok "swapped opencv-python -> opencv-python-headless (no X11 on a server)"
+fi
+
 ok "dependencies installed in .venv (server will run via .venv/bin/python)"
 
 # --- 6. Seed test booking row ----------------------------------------------
