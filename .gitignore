@@ -32,3 +32,5 @@ tunnel_out.txt
 .DS_Store
 .idea/
 .vscode/
+commands.md
+*.log
