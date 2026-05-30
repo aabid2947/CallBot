@@ -1,26 +1,39 @@
 #!/usr/bin/env bash
 # CallBot / VoiceStream deploy script for Amazon Linux 2023.
-# Targets: ec2-user @ 13.60.193.150 (AWS eu-north-1), callbot.duckdns.org.
+# Targets: ec2-user @ AWS EC2, callbot.duckdns.org.
 #
-# Idempotent: safe to re-run. Each phase checks before acting.
-# Run as ec2-user (passwordless sudo expected).
+# Zero prompts. All config lives in $APP_DIR/.env which YOU create
+# before running this script. See .env.example for the full list.
 #
-# Usage:
-#   ssh ec2-user@13.60.193.150
-#   curl -fsSL https://raw.githubusercontent.com/aabid2947/CallBot/main/scripts/deploy_vps.sh -o deploy.sh
-#   chmod +x deploy.sh
-#   ./deploy.sh
+# REQUIRED in .env:
+#   GROQ_API_KEY=...
+#   DEEPGRAM_API_KEY=...
+#   TURN_URLS=turn:...
+#   TURN_USERNAME=...
+#   TURN_CREDENTIAL=...
 #
-# The script will prompt for the secrets it needs (GROQ key, Deepgram key,
-# DuckDNS token, TURN creds). Nothing is logged or echoed.
+# OPTIONAL in .env (skipped if blank):
+#   DUCKDNS_TOKEN=...   -> script updates DNS + installs auto-update cron
+#   LE_EMAIL=...        -> script runs certbot to install Let's Encrypt cert
+#   LLM_MODEL=, STT_MODEL=, TTS_VOICE=, BUSINESS_NAME=, DATABASE_URL=,
+#   HOST=, PORT=        -> have sane defaults if absent
+#
+# Idempotent. Safe to re-run.
+#
+# Usage from a fresh box:
+#   1) ssh ec2-user@<vps-ip>
+#   2) sudo dnf install -y git                # bootstrap the bootstrap
+#   3) git clone https://github.com/aabid2947/CallBot.git
+#   4) cd CallBot
+#   5) cp .env.example .env && nano .env      # fill in the values
+#   6) ./scripts/deploy_vps.sh
 
 set -euo pipefail
 
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOMAIN="callbot.duckdns.org"
-APP_DIR="$HOME/CallBot"
 REPO_URL="https://github.com/aabid2947/CallBot.git"
 SERVICE_NAME="callbot"
-APP_PORT="8000"
 RUN_USER="ec2-user"
 
 phase() { echo; echo "============================================================"; echo "  $1"; echo "============================================================"; }
@@ -29,107 +42,27 @@ note()  { echo "  [..] $1"; }
 warn()  { echo "  [!!] $1" >&2; }
 die()   { echo "  [XX] $1" >&2; exit 1; }
 
-# --- Preflight ---------------------------------------------------------------
+# --- 0. Preflight -----------------------------------------------------------
 
 phase "0. Preflight"
 [ "$(whoami)" = "$RUN_USER" ] || die "run as $RUN_USER, not $(whoami)"
 sudo -n true 2>/dev/null || die "passwordless sudo required"
 [ "$(uname)" = "Linux" ] || die "Linux only"
 grep -q 'Amazon Linux' /etc/os-release || warn "expected Amazon Linux 2023; continuing"
-ok "running as $RUN_USER with sudo"
+ok "running as $RUN_USER with sudo from $APP_DIR"
 
-# --- Collect secrets up front (so the script can run unattended after) ------
+# --- 1. System packages (install BEFORE we need git / python3.11 / etc) -----
 
-phase "1. Collect secrets (typed input is hidden)"
-
-read_secret() {  # arg1=var-name, arg2=prompt
-    local _v
-    read -r -s -p "  $2: " _v
-    echo
-    [ -n "$_v" ] || die "$1 cannot be empty"
-    printf -v "$1" '%s' "$_v"
-}
-
-read_secret GROQ_API_KEY      "GROQ_API_KEY (https://console.groq.com/keys)"
-read_secret DEEPGRAM_API_KEY  "DEEPGRAM_API_KEY (https://console.deepgram.com)"
-read_secret DUCKDNS_TOKEN     "DUCKDNS_TOKEN  (https://www.duckdns.org -> shown after sign in)"
-
-echo
-echo "  TURN provider: openrelay.metered.ca was UNREACHABLE from this box."
-echo "  Recommended: Cloudflare Realtime TURN (free, anycast, EU PoP)."
-echo "    1) https://dash.cloudflare.com -> Calls -> Create TURN App."
-echo "    2) Copy the 'TURN URL' / 'username' / 'credential' fields."
-echo "  If you only have host:port from a provider, prefix with 'turn:' below."
-echo
-read -r -p "  TURN_URLS (comma-separated, each MUST start with turn:/turns:/stun:/stuns:): " TURN_URLS
-read -r -p "  TURN_USERNAME: " TURN_USERNAME
-read_secret TURN_CREDENTIAL "TURN_CREDENTIAL"
-
-# Optional: email for Let's Encrypt expiry notices
-read -r -p "  Email for Let's Encrypt notifications: " LE_EMAIL
-[ -n "$LE_EMAIL" ] || die "Let's Encrypt requires an email"
-
-# --- Sanity-check that the domain points here -------------------------------
-
-phase "2. DNS sanity check"
-MY_IP="$(curl -fsS --max-time 5 https://api.ipify.org)"
-DUCK_IP="$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)"
-echo "  This VPS public IP : $MY_IP"
-echo "  $DOMAIN currently  : ${DUCK_IP:-<unresolved>}"
-
-if [ "$MY_IP" != "$DUCK_IP" ]; then
-    note "DuckDNS does not point here yet. Updating now via the token..."
-    UPD="https://www.duckdns.org/update?domains=callbot&token=${DUCKDNS_TOKEN}&ip=${MY_IP}"
-    RESP="$(curl -fsS --max-time 10 "$UPD" || true)"
-    if [ "$RESP" = "OK" ]; then
-        ok "DuckDNS updated -> $MY_IP. Wait ~60s for global propagation."
-    else
-        die "DuckDNS update failed: response was '$RESP' (check token)"
-    fi
-else
-    ok "DuckDNS already points here"
-fi
-
-# --- Persistent DuckDNS updater (cron, every 5 min) -------------------------
-
-phase "3. DuckDNS auto-updater"
-DUCK_DIR="$HOME/.duckdns"
-mkdir -p "$DUCK_DIR"
-cat > "$DUCK_DIR/update.sh" <<EOF
-#!/usr/bin/env bash
-# Updates callbot.duckdns.org to this host's current public IP.
-curl -fsS --max-time 10 "https://www.duckdns.org/update?domains=callbot&token=${DUCKDNS_TOKEN}&ip=" >> "$DUCK_DIR/log" 2>&1
-echo " \$(date -u +%FT%TZ)" >> "$DUCK_DIR/log"
-EOF
-chmod 700 "$DUCK_DIR/update.sh"
-chmod 600 "$DUCK_DIR/log" 2>/dev/null || true
-( crontab -l 2>/dev/null | grep -v 'duckdns/update.sh' ; echo "*/5 * * * * $DUCK_DIR/update.sh" ) | crontab -
-ok "cron entry installed (runs every 5 min)"
-
-# --- Swap (1 GB) ------------------------------------------------------------
-
-phase "4. Swap (1 GB) — RAM is only 916 MB"
-if swapon --show | grep -q '/swapfile'; then
-    ok "swap already present"
-else
-    sudo fallocate -l 1G /swapfile
-    sudo chmod 600 /swapfile
-    sudo mkswap /swapfile >/dev/null
-    sudo swapon /swapfile
-    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
-    ok "swapfile mounted and added to /etc/fstab"
-fi
-
-# --- System packages --------------------------------------------------------
-
-phase "5. System packages (dnf)"
+phase "1. System packages (dnf)"
 sudo dnf -y -q install \
     git \
+    cronie \
     python3.11 python3.11-pip python3.11-devel \
     gcc \
     nginx \
-    augeas-libs  # needed by some certbot DNS plugins; harmless if unused
-ok "git, python3.11, gcc, nginx installed"
+    augeas-libs
+sudo systemctl enable --now crond >/dev/null
+ok "git, cron, python3.11, gcc, nginx installed"
 
 # Certbot via pip (the dnf snap is patchy on AL2023; pip is recommended).
 if ! command -v certbot >/dev/null 2>&1; then
@@ -142,69 +75,107 @@ else
     ok "certbot already present"
 fi
 
-# --- Application checkout ---------------------------------------------------
+# --- 2. Load .env -----------------------------------------------------------
 
-phase "6. Application checkout"
-if [ -d "$APP_DIR/.git" ]; then
-    note "existing checkout — pulling latest"
-    git -C "$APP_DIR" pull --ff-only
+phase "2. Load .env"
+ENV_FILE="$APP_DIR/.env"
+[ -f "$ENV_FILE" ] || die ".env not found at $ENV_FILE — copy .env.example to .env and fill it in first"
+# shellcheck disable=SC1090
+set -a; source "$ENV_FILE"; set +a
+
+# Required runtime keys — fail fast with a clear message.
+for var in GROQ_API_KEY DEEPGRAM_API_KEY TURN_URLS TURN_USERNAME TURN_CREDENTIAL; do
+    [ -n "${!var:-}" ] || die "$var is empty in $ENV_FILE (required)"
+done
+
+# Optional deploy-time keys (informational).
+[ -n "${DUCKDNS_TOKEN:-}" ] && ok "DUCKDNS_TOKEN present -> DNS will be auto-updated" || note "DUCKDNS_TOKEN absent -> skipping DNS update (point $DOMAIN to this VPS manually if needed)"
+[ -n "${LE_EMAIL:-}"      ] && ok "LE_EMAIL present -> Let's Encrypt cert will be installed" || note "LE_EMAIL absent -> skipping TLS (server will run on :80 only)"
+
+# Defaults if .env didn't set them.
+APP_PORT="${PORT:-8000}"
+ok ".env loaded; required keys are set; using PORT=$APP_PORT"
+
+# --- 3. DNS sanity check ----------------------------------------------------
+
+phase "3. DNS sanity check"
+MY_IP="$(curl -fsS --max-time 5 https://api.ipify.org)"
+DUCK_IP="$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)"
+echo "  This VPS public IP : $MY_IP"
+echo "  $DOMAIN currently  : ${DUCK_IP:-<unresolved>}"
+
+if [ -n "${DUCKDNS_TOKEN:-}" ] && [ "$MY_IP" != "$DUCK_IP" ]; then
+    note "DuckDNS does not point here yet. Updating now via the token..."
+    UPD="https://www.duckdns.org/update?domains=callbot&token=${DUCKDNS_TOKEN}&ip=${MY_IP}"
+    RESP="$(curl -fsS --max-time 10 "$UPD" || true)"
+    if [ "$RESP" = "OK" ]; then
+        ok "DuckDNS updated -> $MY_IP. Wait ~60s for global propagation."
+    else
+        die "DuckDNS update failed: response was '$RESP' (check token)"
+    fi
+elif [ "$MY_IP" = "$DUCK_IP" ]; then
+    ok "DuckDNS already points here"
 else
-    git clone "$REPO_URL" "$APP_DIR"
+    warn "DNS does not match this VPS and no DUCKDNS_TOKEN to auto-update"
+    warn "  -> certbot will fail later unless you update DNS manually"
 fi
-ok "code at $APP_DIR"
 
-# --- Python venv + deps -----------------------------------------------------
+# --- 4. DuckDNS auto-updater (only if token present) -----------------------
 
-phase "7. Python venv + dependencies"
+if [ -n "${DUCKDNS_TOKEN:-}" ]; then
+    phase "4. DuckDNS auto-updater (cron every 5 min)"
+    DUCK_DIR="$HOME/.duckdns"
+    mkdir -p "$DUCK_DIR"
+    cat > "$DUCK_DIR/update.sh" <<EOF
+#!/usr/bin/env bash
+curl -fsS --max-time 10 "https://www.duckdns.org/update?domains=callbot&token=${DUCKDNS_TOKEN}&ip=" >> "$DUCK_DIR/log" 2>&1
+echo " \$(date -u +%FT%TZ)" >> "$DUCK_DIR/log"
+EOF
+    chmod 700 "$DUCK_DIR/update.sh"
+    chmod 600 "$DUCK_DIR/log" 2>/dev/null || true
+    ( crontab -l 2>/dev/null | grep -v 'duckdns/update.sh' ; echo "*/5 * * * * $DUCK_DIR/update.sh" ) | crontab -
+    ok "cron entry installed (runs every 5 min)"
+else
+    phase "4. DuckDNS auto-updater (skipped — no DUCKDNS_TOKEN)"
+fi
+
+# --- 5. Swap (1 GB on a 916 MB box) ----------------------------------------
+
+phase "5. Swap (1 GB)"
+if swapon --show | grep -q '/swapfile'; then
+    ok "swap already present"
+else
+    sudo fallocate -l 1G /swapfile
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile >/dev/null
+    sudo swapon /swapfile
+    grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+    ok "swapfile mounted and added to /etc/fstab"
+fi
+
+# --- 6. Python venv + deps --------------------------------------------------
+
+phase "6. Python venv + dependencies"
 cd "$APP_DIR"
 if [ ! -d .venv ]; then
     python3.11 -m venv .venv
+    ok "new .venv created at $APP_DIR/.venv"
+else
+    ok ".venv already exists"
 fi
 .venv/bin/python -m pip install -q --upgrade pip wheel setuptools
 .venv/bin/python -m pip install -q -r requirements.txt
 .venv/bin/python -m pip install -q -e ".[dev,web]"
-ok "Python deps installed in $APP_DIR/.venv"
+ok "dependencies installed in .venv (server will run via .venv/bin/python)"
 
-# --- .env -------------------------------------------------------------------
+# --- 7. Seed test booking row ----------------------------------------------
 
-phase "8. Write .env"
-umask 077
-cat > "$APP_DIR/.env" <<EOF
-# Generated by deploy_vps.sh on $(date -u +%FT%TZ)
-GROQ_API_KEY=${GROQ_API_KEY}
-DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY}
+phase "7. Seed test booking request"
+"$APP_DIR/.venv/bin/python" "$APP_DIR/scripts/seed_test_request.py" || warn "seed failed (row may already exist — fine)"
 
-# DB (default SQLite; switch to Supabase by changing this and re-installing
-# the [postgres] extra: pip install -e ".[postgres]")
-DATABASE_URL=sqlite:///${APP_DIR}/callbot.db
+# --- 8. systemd service (CallBot runs INSIDE the venv, cgroup-capped) ------
 
-# Voice defaults — change here, no code edits
-LLM_MODEL=llama-3.3-70b-versatile
-STT_MODEL=nova-3
-TTS_VOICE=aura-2-thalia-en
-BUSINESS_NAME=City Care Hospital
-
-# TURN — every URL MUST start with turn:/turns:/stun:/stuns:
-TURN_URLS=${TURN_URLS}
-TURN_USERNAME=${TURN_USERNAME}
-TURN_CREDENTIAL=${TURN_CREDENTIAL}
-
-# Server bind
-HOST=127.0.0.1
-PORT=${APP_PORT}
-EOF
-chmod 600 "$APP_DIR/.env"
-umask 022
-ok ".env written (chmod 600)"
-
-# --- Seed the test booking row ----------------------------------------------
-
-phase "9. Seed test booking request"
-"$APP_DIR/.venv/bin/python" "$APP_DIR/scripts/seed_test_request.py" || warn "seed failed (DB might already have an active row — fine)"
-
-# --- systemd unit -----------------------------------------------------------
-
-phase "10. systemd service"
+phase "8. systemd service for $SERVICE_NAME"
 sudo tee /etc/systemd/system/${SERVICE_NAME}.service >/dev/null <<EOF
 [Unit]
 Description=CallBot voice agent (VoiceStream)
@@ -221,18 +192,11 @@ Restart=always
 RestartSec=5
 
 # --- Free-tier safety on t3.micro (2 vCPU, 916 MB RAM) ---
-# CPUQuota caps total CPU CallBot can use. 160% = 1.6 of the 2 vCPUs,
-# leaves >= 0.4 vCPU for SSH / nginx / systemd no matter what. Voice
-# bursts (STT/TTS) fit comfortably; a runaway loop is capped.
 CPUQuota=160%
-# Memory: soft cap at 550 MB (kernel starts reclaiming), hard cap 700 MB
-# (kernel kills the proc — systemd restarts via Restart=always).
 MemoryHigh=550M
 MemoryMax=700M
-# Can't fork-bomb the box.
 TasksMax=200
 
-# Logs to journalctl
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=${SERVICE_NAME}
@@ -248,11 +212,11 @@ sudo systemctl is-active --quiet "$SERVICE_NAME" || {
     sudo journalctl -u "$SERVICE_NAME" -n 40 --no-pager
     die "service failed to start"
 }
-ok "$SERVICE_NAME service enabled and running"
+ok "$SERVICE_NAME service enabled and running (cgroup limits enforced)"
 
-# --- nginx reverse proxy (HTTP first; certbot adds 443 next) ----------------
+# --- 9. nginx reverse proxy (HTTP; certbot will add 443 if LE_EMAIL set) ---
 
-phase "11. nginx reverse proxy"
+phase "9. nginx reverse proxy"
 sudo tee /etc/nginx/conf.d/${SERVICE_NAME}.conf >/dev/null <<EOF
 server {
     listen 80;
@@ -260,7 +224,7 @@ server {
     server_name ${DOMAIN};
 
     # WebRTC media is P2P UDP and does NOT flow through nginx.
-    # nginx only proxies the HTTPS signaling: GET /, /api/offer, /api/ice_servers, /health.
+    # nginx only proxies the HTTPS signaling.
 
     client_max_body_size 1m;
 
@@ -280,63 +244,56 @@ EOF
 sudo nginx -t
 sudo systemctl enable --now nginx >/dev/null
 sudo systemctl reload nginx
-ok "nginx serving $DOMAIN on :80"
+ok "nginx serving $DOMAIN on :80 -> 127.0.0.1:$APP_PORT"
 
-# --- TLS via Let's Encrypt --------------------------------------------------
+# --- 10. Let's Encrypt TLS (only if LE_EMAIL set) --------------------------
 
-phase "12. Let's Encrypt TLS (callbot.duckdns.org)"
-echo "  Reminder: AWS Security Group MUST allow inbound 80 and 443 from 0.0.0.0/0"
-echo "  before certbot can complete the HTTP-01 challenge."
-read -r -p "  Has the Security Group been updated? [y/N] " ack
-case "$ack" in
-    [yY]*) ;;
-    *) warn "skipping TLS — re-run this script after opening 80/443 in the AWS SG"; exit 0 ;;
-esac
-
-if sudo /usr/local/bin/certbot certificates 2>/dev/null | grep -q "$DOMAIN"; then
-    ok "certificate for $DOMAIN already present"
+if [ -n "${LE_EMAIL:-}" ]; then
+    phase "10. Let's Encrypt TLS for $DOMAIN"
+    note "Requires SG ports 80 and 443 open to 0.0.0.0/0"
+    if sudo /usr/local/bin/certbot certificates 2>/dev/null | grep -q "$DOMAIN"; then
+        ok "certificate for $DOMAIN already present"
+    else
+        sudo /usr/local/bin/certbot --nginx \
+            --non-interactive \
+            --agree-tos \
+            -m "$LE_EMAIL" \
+            -d "$DOMAIN" \
+            --redirect
+        ok "certificate issued; nginx now serves https://$DOMAIN/"
+    fi
+    sudo systemctl enable --now certbot-renew.timer 2>/dev/null || true
 else
-    sudo /usr/local/bin/certbot --nginx \
-        --non-interactive \
-        --agree-tos \
-        -m "$LE_EMAIL" \
-        -d "$DOMAIN" \
-        --redirect
+    phase "10. Let's Encrypt TLS (skipped — no LE_EMAIL)"
 fi
 
-# Auto-renew via systemd timer (certbot ships one)
-sudo systemctl enable --now certbot-renew.timer 2>/dev/null || true
-ok "TLS configured. https://$DOMAIN/ should now work."
+# --- 11. Resource guardrail watchdog ---------------------------------------
 
-# --- Resource guardrail (optional) ------------------------------------------
+phase "11. Resource guardrail watchdog"
+if systemctl is-enabled guardrail.service >/dev/null 2>&1; then
+    ok "guardrail already installed; restarting to pick up any changes"
+    sudo systemctl restart guardrail.service
+else
+    sudo "$APP_DIR/scripts/guardrail.sh" install
+    ok "guardrail installed"
+fi
 
-phase "13. Resource guardrail watchdog"
-echo "  Installs a system-wide watchdog that polices interactive shell processes"
-echo "  (test scripts, REPLs) but NEVER touches systemd-managed services like"
-echo "  callbot.service or sshd. Protects CPU credits on t3.micro free tier."
-read -r -p "  Install guardrail.sh as a systemd service? [Y/n] " gw
-case "$gw" in
-    [nN]*) note "skipped — re-run later with: sudo $APP_DIR/scripts/guardrail.sh install" ;;
-    *)
-        sudo "$APP_DIR/scripts/guardrail.sh" install
-        ok "guardrail installed"
-        ;;
-esac
+# --- 12. Done ---------------------------------------------------------------
 
-# --- Final summary ----------------------------------------------------------
-
-phase "14. Done"
+phase "12. Done"
+URL_SCHEME="http"
+[ -n "${LE_EMAIL:-}" ] && URL_SCHEME="https"
 echo
 echo "  Service:      sudo systemctl status $SERVICE_NAME"
-echo "  Logs (live):  sudo journalctl -u $SERVICE_NAME -f"
+echo "  Live logs:    sudo journalctl -u $SERVICE_NAME -f"
 echo "  App logs:     $APP_DIR/logs/voicestream.log"
-echo "  Test URL:     https://$DOMAIN/"
-echo "  Relay-only:   https://$DOMAIN/?relay   (forces TURN; strict pre-test)"
+echo "  Test URL:     ${URL_SCHEME}://$DOMAIN/"
+echo "  Relay-only:   ${URL_SCHEME}://$DOMAIN/?relay   (forces TURN; strict pre-test)"
 echo
-echo "  To redeploy after a code change:"
+echo "  Re-deploy after code change:"
 echo "    cd $APP_DIR && git pull && sudo systemctl restart $SERVICE_NAME"
 echo
-echo "  To swap models without redeploy:"
-echo "    edit $APP_DIR/.env (LLM_MODEL=, STT_MODEL=, TTS_VOICE=, TURN_URLS=)"
+echo "  Change config without redeploying:"
+echo "    edit $APP_DIR/.env"
 echo "    sudo systemctl restart $SERVICE_NAME"
 echo
