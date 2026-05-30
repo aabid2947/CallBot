@@ -41,7 +41,8 @@ voicestream/
 ├── scripts/                    # Standalone ops scripts (app-level)
 │   ├── tunnel.py               # One command: starts the server + opens an ngrok tunnel
 │   ├── seed_test_request.py    # Seed the Md Aabid Hussain BookingRequest for Phase-2 testing
-│   └── vps_info.sh             # Bash diagnostic dumped from VPS to inform deploy script
+│   ├── vps_info.sh             # Bash diagnostic dumped from VPS to inform deploy script
+│   └── deploy_vps.sh           # Idempotent deploy: dnf, venv, systemd, nginx, Let's Encrypt
 ├── tests/                      # Test suite
 │   ├── __init__.py             # Tests package marker
 │   ├── test_booking_request_persistence.py  # BookingRequest repo (CRUD, latest_active, outcome)
