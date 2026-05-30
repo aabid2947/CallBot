@@ -36,10 +36,12 @@ voicestream/
 │   └── README.md               # States this folder is test-only; how to run it
 ├── tools/                      # Dev tools (app-level, not in publishable core)
 │   ├── __init__.py             # Tools package marker
-│   └── latency_probe.py        # `python -m tools.latency_probe` real-API latency
+│   ├── latency_probe.py        # `python -m tools.latency_probe` real-API latency
+│   └── groq_limits.py          # `python -m tools.groq_limits` prints x-ratelimit-* headers
 ├── scripts/                    # Standalone ops scripts (app-level)
 │   ├── tunnel.py               # One command: starts the server + opens an ngrok tunnel
-│   └── seed_test_request.py    # Seed the Md Aabid Hussain BookingRequest for Phase-2 testing
+│   ├── seed_test_request.py    # Seed the Md Aabid Hussain BookingRequest for Phase-2 testing
+│   └── vps_info.sh             # Bash diagnostic dumped from VPS to inform deploy script
 ├── tests/                      # Test suite
 │   ├── __init__.py             # Tests package marker
 │   ├── test_booking_request_persistence.py  # BookingRequest repo (CRUD, latest_active, outcome)
