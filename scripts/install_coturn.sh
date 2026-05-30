@@ -37,10 +37,18 @@ die()   { echo "  [XX] $1" >&2; exit 1; }
 
 phase "1. Install coturn"
 if ! command -v turnserver >/dev/null 2>&1; then
-    # AL2023 doesn't ship coturn; use EPEL (RHEL9-compatible).
-    if ! rpm -q epel-release >/dev/null 2>&1; then
-        dnf -y -q install \
-            https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
+    # AL2023 ships no coturn. Add EPEL as a plain repo file (the
+    # epel-release RPM fails on AL2023 because it requires redhat-release).
+    if [ ! -f /etc/yum.repos.d/epel.repo ]; then
+        cat > /etc/yum.repos.d/epel.repo <<'EOF'
+[epel]
+name=Extra Packages for Enterprise Linux 9 - $basearch
+metalink=https://mirrors.fedoraproject.org/metalink?repo=epel-9&arch=$basearch
+enabled=1
+gpgcheck=1
+gpgkey=https://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-9
+EOF
+        note "added EPEL 9 repo at /etc/yum.repos.d/epel.repo"
     fi
     dnf -y -q install coturn
     ok "coturn installed"
