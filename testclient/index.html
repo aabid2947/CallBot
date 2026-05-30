@@ -1,0 +1,196 @@
+<!doctype html>
+<!--
+  ============================================================================
+  VoiceStream — THROWAWAY TEST CLIENT. NOT PART OF THE PRODUCT.
+  ============================================================================
+  This single static page exists only to talk to the local dev server during
+  development. It has no build step and no framework on purpose. Nothing in
+  core/ (or anywhere else) depends on this file. Do not ship it; a real
+  product would have its own web/mobile client.
+  ============================================================================
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VoiceStream — test client</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 32rem;
+        margin: 4rem auto;
+        padding: 0 1rem;
+        text-align: center;
+      }
+      h1 { font-size: 1.25rem; }
+      .note { color: #888; font-size: 0.8rem; margin-bottom: 2rem; }
+      button {
+        font-size: 1rem;
+        padding: 0.75rem 1.5rem;
+        border: 0;
+        border-radius: 0.5rem;
+        cursor: pointer;
+      }
+      #talk { background: #1a7f37; color: #fff; }
+      #hangup { background: #cf222e; color: #fff; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      #status {
+        margin-top: 1.5rem;
+        font-size: 0.95rem;
+        min-height: 1.4em;
+        color: #333;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>VoiceStream test client — receptionist seat</h1>
+    <p class="note">
+      Local testing only — not part of the product. In this session, <b>you
+      are the hospital receptionist</b>. The agent will call you on behalf
+      of its user and try to book an appointment. Answer naturally.
+    </p>
+
+    <p id="relay-banner" style="display:none; background:#fff4d6;
+      border:1px solid #d4a017; border-radius:0.4rem; padding:0.5rem 0.75rem;
+      font-size:0.85rem; margin-bottom:1rem;">
+      🔁 <b>Relay-only mode.</b> Direct ICE candidates are disabled — all
+      audio must go through your TURN server. Use this to verify TURN works
+      before asking a remote tester to call.
+    </p>
+
+    <button id="talk">Pick up</button>
+    <button id="hangup" disabled>Hang up</button>
+    <p id="status">
+      Idle. Click “Pick up” and allow microphone access — the agent will
+      greet you.
+    </p>
+
+    <script>
+      if (new URLSearchParams(location.search).has("relay")) {
+        document.getElementById("relay-banner").style.display = "block";
+      }
+    </script>
+
+    <!-- Agent audio is played here. -->
+    <audio id="agent" autoplay></audio>
+
+    <script>
+      const talkBtn = document.getElementById("talk");
+      const hangupBtn = document.getElementById("hangup");
+      const statusEl = document.getElementById("status");
+      const agentAudio = document.getElementById("agent");
+
+      let pc = null;
+      let micStream = null;
+
+      const setStatus = (msg) => { statusEl.textContent = msg; };
+
+      // Resolve once ICE gathering finishes — we POST a complete SDP
+      // (the server intentionally does not support trickle ICE).
+      function waitForIceGathering(peer) {
+        if (peer.iceGatheringState === "complete") return Promise.resolve();
+        return new Promise((resolve) => {
+          const check = () => {
+            if (peer.iceGatheringState === "complete") {
+              peer.removeEventListener("icegatheringstatechange", check);
+              resolve();
+            }
+          };
+          peer.addEventListener("icegatheringstatechange", check);
+          // Safety timeout: send whatever we have after 3s.
+          setTimeout(resolve, 3000);
+        });
+      }
+
+      // Fetch the server's ICE-server list so both sides match (server's
+      // TURN config is the only way audio gets across NAT for remote testers).
+      async function fetchIceServers() {
+        try {
+          const r = await fetch("/api/ice_servers");
+          if (!r.ok) throw new Error(r.status);
+          const data = await r.json();
+          return data.iceServers || [];
+        } catch (_) {
+          return [{ urls: "stun:stun.l.google.com:19302" }];  // safe fallback
+        }
+      }
+
+      // ?relay  in the URL forces TURN-only (drops host + srflx candidates).
+      // Use it to verify your TURN setup BEFORE asking a remote tester to
+      // try — if the call works in relay-only mode here, it will work
+      // anywhere TURN can be reached.
+      const RELAY_ONLY =
+        new URLSearchParams(location.search).has("relay");
+
+      async function start() {
+        talkBtn.disabled = true;
+        try {
+          setStatus(
+            RELAY_ONLY
+              ? "Relay-only mode. Requesting microphone…"
+              : "Requesting microphone…"
+          );
+          micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+          const iceServers = await fetchIceServers();
+          const pcConfig = { iceServers };
+          if (RELAY_ONLY) pcConfig.iceTransportPolicy = "relay";
+          pc = new RTCPeerConnection(pcConfig);
+
+          // Play whatever audio the agent sends back.
+          pc.ontrack = (e) => { agentAudio.srcObject = e.streams[0]; };
+
+          pc.onconnectionstatechange = () => {
+            setStatus("Connection: " + pc.connectionState);
+            if (
+              pc.connectionState === "failed" ||
+              pc.connectionState === "disconnected"
+            ) {
+              stop();
+            }
+          };
+
+          micStream.getTracks().forEach((t) => pc.addTrack(t, micStream));
+
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          await waitForIceGathering(pc);
+
+          setStatus("Connecting to agent…");
+          const res = await fetch("/api/offer", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sdp: pc.localDescription.sdp,
+              type: pc.localDescription.type,
+            }),
+          });
+          if (!res.ok) throw new Error("Server returned " + res.status);
+
+          const answer = await res.json();
+          await pc.setRemoteDescription(answer);
+
+          setStatus("Connected — start talking.");
+          hangupBtn.disabled = false;
+        } catch (err) {
+          setStatus("Error: " + err.message);
+          stop();
+        }
+      }
+
+      function stop() {
+        hangupBtn.disabled = true;
+        if (pc) { pc.close(); pc = null; }
+        if (micStream) {
+          micStream.getTracks().forEach((t) => t.stop());
+          micStream = null;
+        }
+        talkBtn.disabled = false;
+        setStatus("Call ended. Click “Talk” to start again.");
+      }
+
+      talkBtn.addEventListener("click", start);
+      hangupBtn.addEventListener("click", stop);
+    </script>
+  </body>
+</html>

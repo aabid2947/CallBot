@@ -1,0 +1,25 @@
+# Dependencies grow per build prompt. Install with:
+#   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+#   .\.venv\Scripts\python.exe -m pip install -e .[dev]
+
+# --- Prompt 0: foundation ---
+python-dotenv>=1.0
+pytest>=8.0
+
+# --- Prompt 1 (booking persistence) ---
+SQLAlchemy>=2.0
+
+# Postgres driver — needed when DATABASE_URL points at Supabase/Postgres.
+# (Not required for the default local SQLite.)
+psycopg2-binary>=2.9
+
+# --- Prompt 4 (voice pipeline) + Prompt 5 (web transport) ---
+# App-level only. NOT a dependency of the publishable `core` package.
+pipecat-ai[deepgram,groq,silero,webrtc]==1.2.1
+
+# --- Prompt 5 (web server/transport) ---
+fastapi
+uvicorn[standard]
+
+# --- Dev/ops tooling (not a core dependency) ---
+pyngrok          # scripts/tunnel.py — expose the local server via ngrok

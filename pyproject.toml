@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voicestream-core"
+version = "0.0.1"
+description = "Reusable voice AI appointment-booking core (transport- and web-agnostic)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv>=1.0",
+    "SQLAlchemy>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+# Postgres backend (e.g. Supabase). Core stays SQLite-only by default;
+# install this extra when DATABASE_URL points at Postgres.
+postgres = ["psycopg2-binary>=2.9"]
+# App-level voice pipeline. Intentionally an OPTIONAL extra so the core
+# package never forces Pipecat on a project that only wants the booking API.
+voice = ["pipecat-ai[deepgram,groq,silero]==1.2.1"]
+# App-level web transport + server (this project's test deployment).
+web = [
+    "pipecat-ai[deepgram,groq,silero,webrtc]==1.2.1",
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+# IMPORTANT: only `core` is published as the microservice boundary.
+# voice/, transport/, server/, testclient/ are app-level and intentionally
+# excluded from the distribution so another project can depend on the core alone.
+[tool.setuptools.packages.find]
+include = ["core*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
