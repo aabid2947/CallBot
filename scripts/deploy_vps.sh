@@ -13,7 +13,8 @@
 #   TURN_CREDENTIAL=...
 #
 # OPTIONAL in .env (skipped if blank):
-#   DUCKDNS_TOKEN=...   -> script updates DNS + installs auto-update cron
+#   DUCKDNS_TOKEN=...   -> script updates DuckDNS once (no cron — EC2 IP is
+#                          stable as long as the instance is not stopped)
 #   LE_EMAIL=...        -> script runs certbot to install Let's Encrypt cert
 #   LLM_MODEL=, STT_MODEL=, TTS_VOICE=, BUSINESS_NAME=, DATABASE_URL=,
 #   HOST=, PORT=        -> have sane defaults if absent
@@ -56,13 +57,11 @@ ok "running as $RUN_USER with sudo from $APP_DIR"
 phase "1. System packages (dnf)"
 sudo dnf -y -q install \
     git \
-    cronie \
     python3.11 python3.11-pip python3.11-devel \
     gcc \
     nginx \
     augeas-libs
-sudo systemctl enable --now crond >/dev/null
-ok "git, cron, python3.11, gcc, nginx installed"
+ok "git, python3.11, gcc, nginx installed"
 
 # Certbot via pip (the dnf snap is patchy on AL2023; pip is recommended).
 if ! command -v certbot >/dev/null 2>&1; then
@@ -120,28 +119,9 @@ else
     warn "  -> certbot will fail later unless you update DNS manually"
 fi
 
-# --- 4. DuckDNS auto-updater (only if token present) -----------------------
+# --- 4. Swap (1 GB on a 916 MB box) ----------------------------------------
 
-if [ -n "${DUCKDNS_TOKEN:-}" ]; then
-    phase "4. DuckDNS auto-updater (cron every 5 min)"
-    DUCK_DIR="$HOME/.duckdns"
-    mkdir -p "$DUCK_DIR"
-    cat > "$DUCK_DIR/update.sh" <<EOF
-#!/usr/bin/env bash
-curl -fsS --max-time 10 "https://www.duckdns.org/update?domains=callbot&token=${DUCKDNS_TOKEN}&ip=" >> "$DUCK_DIR/log" 2>&1
-echo " \$(date -u +%FT%TZ)" >> "$DUCK_DIR/log"
-EOF
-    chmod 700 "$DUCK_DIR/update.sh"
-    chmod 600 "$DUCK_DIR/log" 2>/dev/null || true
-    ( crontab -l 2>/dev/null | grep -v 'duckdns/update.sh' ; echo "*/5 * * * * $DUCK_DIR/update.sh" ) | crontab -
-    ok "cron entry installed (runs every 5 min)"
-else
-    phase "4. DuckDNS auto-updater (skipped — no DUCKDNS_TOKEN)"
-fi
-
-# --- 5. Swap (1 GB on a 916 MB box) ----------------------------------------
-
-phase "5. Swap (1 GB)"
+phase "4. Swap (1 GB)"
 if swapon --show | grep -q '/swapfile'; then
     ok "swap already present"
 else
@@ -153,9 +133,9 @@ else
     ok "swapfile mounted and added to /etc/fstab"
 fi
 
-# --- 6. Python venv + deps --------------------------------------------------
+# --- 5. Python venv + deps --------------------------------------------------
 
-phase "6. Python venv + dependencies"
+phase "5. Python venv + dependencies"
 cd "$APP_DIR"
 if [ ! -d .venv ]; then
     python3.11 -m venv .venv
@@ -168,14 +148,14 @@ fi
 .venv/bin/python -m pip install -q -e ".[dev,web]"
 ok "dependencies installed in .venv (server will run via .venv/bin/python)"
 
-# --- 7. Seed test booking row ----------------------------------------------
+# --- 6. Seed test booking row ----------------------------------------------
 
-phase "7. Seed test booking request"
+phase "6. Seed test booking request"
 "$APP_DIR/.venv/bin/python" "$APP_DIR/scripts/seed_test_request.py" || warn "seed failed (row may already exist — fine)"
 
-# --- 8. systemd service (CallBot runs INSIDE the venv, cgroup-capped) ------
+# --- 7. systemd service (CallBot runs INSIDE the venv, cgroup-capped) ------
 
-phase "8. systemd service for $SERVICE_NAME"
+phase "7. systemd service for $SERVICE_NAME"
 sudo tee /etc/systemd/system/${SERVICE_NAME}.service >/dev/null <<EOF
 [Unit]
 Description=CallBot voice agent (VoiceStream)
@@ -214,9 +194,9 @@ sudo systemctl is-active --quiet "$SERVICE_NAME" || {
 }
 ok "$SERVICE_NAME service enabled and running (cgroup limits enforced)"
 
-# --- 9. nginx reverse proxy (HTTP; certbot will add 443 if LE_EMAIL set) ---
+# --- 8. nginx reverse proxy (HTTP; certbot will add 443 if LE_EMAIL set) ---
 
-phase "9. nginx reverse proxy"
+phase "8. nginx reverse proxy"
 sudo tee /etc/nginx/conf.d/${SERVICE_NAME}.conf >/dev/null <<EOF
 server {
     listen 80;
@@ -246,10 +226,10 @@ sudo systemctl enable --now nginx >/dev/null
 sudo systemctl reload nginx
 ok "nginx serving $DOMAIN on :80 -> 127.0.0.1:$APP_PORT"
 
-# --- 10. Let's Encrypt TLS (only if LE_EMAIL set) --------------------------
+# --- 9. Let's Encrypt TLS (only if LE_EMAIL set) ---------------------------
 
 if [ -n "${LE_EMAIL:-}" ]; then
-    phase "10. Let's Encrypt TLS for $DOMAIN"
+    phase "9. Let's Encrypt TLS for $DOMAIN"
     note "Requires SG ports 80 and 443 open to 0.0.0.0/0"
     if sudo /usr/local/bin/certbot certificates 2>/dev/null | grep -q "$DOMAIN"; then
         ok "certificate for $DOMAIN already present"
@@ -264,12 +244,12 @@ if [ -n "${LE_EMAIL:-}" ]; then
     fi
     sudo systemctl enable --now certbot-renew.timer 2>/dev/null || true
 else
-    phase "10. Let's Encrypt TLS (skipped — no LE_EMAIL)"
+    phase "9. Let's Encrypt TLS (skipped — no LE_EMAIL)"
 fi
 
-# --- 11. Resource guardrail watchdog ---------------------------------------
+# --- 10. Resource guardrail watchdog ---------------------------------------
 
-phase "11. Resource guardrail watchdog"
+phase "10. Resource guardrail watchdog"
 if systemctl is-enabled guardrail.service >/dev/null 2>&1; then
     ok "guardrail already installed; restarting to pick up any changes"
     sudo systemctl restart guardrail.service
@@ -278,9 +258,9 @@ else
     ok "guardrail installed"
 fi
 
-# --- 12. Done ---------------------------------------------------------------
+# --- 11. Done ---------------------------------------------------------------
 
-phase "12. Done"
+phase "11. Done"
 URL_SCHEME="http"
 [ -n "${LE_EMAIL:-}" ] && URL_SCHEME="https"
 echo
