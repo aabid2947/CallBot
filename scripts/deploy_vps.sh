@@ -219,9 +219,18 @@ EnvironmentFile=${APP_DIR}/.env
 ExecStart=${APP_DIR}/.venv/bin/python -m server
 Restart=always
 RestartSec=5
-# Memory guard so an OOM doesn't take the whole box down.
-MemoryHigh=600M
-MemoryMax=750M
+
+# --- Free-tier safety on t3.micro (2 vCPU, 916 MB RAM) ---
+# CPUQuota caps total CPU CallBot can use. 160% = 1.6 of the 2 vCPUs,
+# leaves >= 0.4 vCPU for SSH / nginx / systemd no matter what. Voice
+# bursts (STT/TTS) fit comfortably; a runaway loop is capped.
+CPUQuota=160%
+# Memory: soft cap at 550 MB (kernel starts reclaiming), hard cap 700 MB
+# (kernel kills the proc — systemd restarts via Restart=always).
+MemoryHigh=550M
+MemoryMax=700M
+# Can't fork-bomb the box.
+TasksMax=200
 
 # Logs to journalctl
 StandardOutput=journal
@@ -299,9 +308,24 @@ fi
 sudo systemctl enable --now certbot-renew.timer 2>/dev/null || true
 ok "TLS configured. https://$DOMAIN/ should now work."
 
+# --- Resource guardrail (optional) ------------------------------------------
+
+phase "13. Resource guardrail watchdog"
+echo "  Installs a system-wide watchdog that polices interactive shell processes"
+echo "  (test scripts, REPLs) but NEVER touches systemd-managed services like"
+echo "  callbot.service or sshd. Protects CPU credits on t3.micro free tier."
+read -r -p "  Install guardrail.sh as a systemd service? [Y/n] " gw
+case "$gw" in
+    [nN]*) note "skipped — re-run later with: sudo $APP_DIR/scripts/guardrail.sh install" ;;
+    *)
+        sudo "$APP_DIR/scripts/guardrail.sh" install
+        ok "guardrail installed"
+        ;;
+esac
+
 # --- Final summary ----------------------------------------------------------
 
-phase "13. Done"
+phase "14. Done"
 echo
 echo "  Service:      sudo systemctl status $SERVICE_NAME"
 echo "  Logs (live):  sudo journalctl -u $SERVICE_NAME -f"
