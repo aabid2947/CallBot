@@ -116,6 +116,19 @@ Public API (re-exported from `core.booking`):
   auto-normalised to `postgresql://` so Supabase URIs paste verbatim.
 - All datetimes are timezone-aware UTC via the `UtcDateTime` decorator
   (SQLite would otherwise return naive). Always pass aware UTC datetimes.
+- **Feature 4 (AIVA / general appointments).** `BookingRequest` is now
+  general-purpose: `appointment_type` ∈ `medical | meeting | service | other`;
+  `date_of_birth` (and insurance fields) are required ONLY for `medical`
+  (enforced in `proxy_service.create` and `POST /api/booking_requests`).
+  AIVA-owned, nullable columns drive + map the call: `caller_user_id`,
+  `aiva_chat_id`, `scheduled_call_at`, `contact_info`, `target_phone`,
+  `call_triggered_at`, `outcome_notified_at`. The booking DB is SHARED with
+  AIVA (one Supabase Postgres): fresh DB → `init_db()` create_all; existing
+  table → run `scripts/upgrade_booking_schema.sql`. `/api/offer` now binds an
+  optional `request_id` (query or body; else `latest_active()`) and allows only
+  ONE live call (409 otherwise); the persona + `get_caller_info` adapt to
+  `appointment_type` (clinical fields only for `medical`); `record_*` outcomes
+  persist to the shared row.
 
 ## Agent brain (`core.agent`) — proxy caller
 

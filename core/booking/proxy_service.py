@@ -23,6 +23,7 @@ from .repository import (
 
 
 VALID_TIMES_OF_DAY = ("morning", "afternoon", "evening", "any")
+VALID_APPOINTMENT_TYPES = ("medical", "meeting", "service", "other")
 SEED_NAME = "Md Aabid Hussain"
 _ACTIVE_STATUSES = (
     BookingRequestStatus.PENDING,
@@ -44,8 +45,9 @@ class BookingRequestView:
     """Plain serialisable snapshot of a BookingRequest (no ORM coupling)."""
 
     id: int
+    appointment_type: str
     full_name: str
-    date_of_birth: date
+    date_of_birth: date | None
     phone: str
     email: str | None
     address: str | None
@@ -60,6 +62,13 @@ class BookingRequestView:
     department: str | None
     notes: str | None
     target_hospital_name: str | None
+    target_phone: str | None
+    scheduled_call_at: datetime | None
+    caller_user_id: str | None
+    aiva_chat_id: str | None
+    contact_info: str | None
+    call_triggered_at: datetime | None
+    outcome_notified_at: datetime | None
     status: str
     outcome_scheduled_time: datetime | None
     outcome_confirmation_number: str | None
@@ -69,6 +78,7 @@ class BookingRequestView:
     def of(r: BookingRequest) -> "BookingRequestView":
         return BookingRequestView(
             id=r.id,
+            appointment_type=r.appointment_type,
             full_name=r.full_name,
             date_of_birth=r.date_of_birth,
             phone=r.phone,
@@ -85,6 +95,13 @@ class BookingRequestView:
             department=r.department,
             notes=r.notes,
             target_hospital_name=r.target_hospital_name,
+            target_phone=r.target_phone,
+            scheduled_call_at=r.scheduled_call_at,
+            caller_user_id=r.caller_user_id,
+            aiva_chat_id=r.aiva_chat_id,
+            contact_info=r.contact_info,
+            call_triggered_at=r.call_triggered_at,
+            outcome_notified_at=r.outcome_notified_at,
             status=r.status.value,
             outcome_scheduled_time=r.outcome_scheduled_time,
             outcome_confirmation_number=r.outcome_confirmation_number,
@@ -144,9 +161,10 @@ class BookingRequestService:
         self,
         *,
         full_name: str,
-        date_of_birth: date,
-        phone: str,
         appointment_reason: str,
+        phone: str,
+        date_of_birth: date | None = None,
+        appointment_type: str = "medical",
         email: str | None = None,
         address: str | None = None,
         insurance_provider: str | None = None,
@@ -159,16 +177,35 @@ class BookingRequestService:
         department: str | None = None,
         notes: str | None = None,
         target_hospital_name: str | None = None,
+        target_phone: str | None = None,
+        scheduled_call_at: datetime | None = None,
+        caller_user_id: str | None = None,
+        aiva_chat_id: str | None = None,
+        contact_info: str | None = None,
     ) -> BookingRequestResult:
         name = (full_name or "").strip()
         if not name:
             return BookingRequestResult.failure(
                 BookingRequestError.INVALID_INPUT, "A full name is required."
             )
-        if not isinstance(date_of_birth, date):
+        atype = (appointment_type or "medical").strip().lower()
+        if atype not in VALID_APPOINTMENT_TYPES:
             return BookingRequestResult.failure(
                 BookingRequestError.INVALID_INPUT,
-                "Date of birth is required (date).",
+                f"appointment_type must be one of {VALID_APPOINTMENT_TYPES}.",
+            )
+        # DOB is required only for medical appointments; for other types it is
+        # optional, but must still be a real date when supplied.
+        if atype == "medical":
+            if not isinstance(date_of_birth, date):
+                return BookingRequestResult.failure(
+                    BookingRequestError.INVALID_INPUT,
+                    "Date of birth is required for medical appointments.",
+                )
+        elif date_of_birth is not None and not isinstance(date_of_birth, date):
+            return BookingRequestResult.failure(
+                BookingRequestError.INVALID_INPUT,
+                "Date of birth must be a date when provided.",
             )
         if not (phone or "").strip():
             return BookingRequestResult.failure(
@@ -196,6 +233,7 @@ class BookingRequestService:
             )
 
         request = BookingRequest(
+            appointment_type=atype,
             full_name=name,
             date_of_birth=date_of_birth,
             phone=phone.strip(),
@@ -212,6 +250,11 @@ class BookingRequestService:
             department=department,
             notes=notes,
             target_hospital_name=target_hospital_name,
+            target_phone=target_phone,
+            scheduled_call_at=scheduled_call_at,
+            caller_user_id=caller_user_id,
+            aiva_chat_id=aiva_chat_id,
+            contact_info=contact_info,
         )
         created = self._reqs.add(request)
         return BookingRequestResult.success(

@@ -14,6 +14,16 @@ from datetime import datetime, timezone
 DEFAULT_CALLER_NAME = "the caller"
 DEFAULT_TARGET_HOSPITAL = "the hospital"
 
+_DETAILS_MEDICAL = (
+    "your personal details (full name, date of birth, phone, address, "
+    "insurance, patient type)"
+)
+_DETAILS_GENERIC = "who you are (your full name, phone, and any contact details you were given)"
+_TYPE_NOTE_GENERIC = (
+    "\n- This is a {atype} appointment — keep it general: do NOT bring up date "
+    "of birth, insurance, or medical patient details, and never invent them."
+)
+
 _PERSONA = """\
 You are calling {target} by voice on behalf of {caller}. Throughout this call \
 you speak AS {caller} in the first person — never as an AI, never about \
@@ -27,13 +37,11 @@ points, emojis, or lists — this is spoken aloud.
 - Greet briefly when they pick up, then say what you are calling about.
 
 What you know:
-- You have two read-only tools: call `get_caller_info` to recall personal \
-details (name, date of birth, phone, address, insurance, patient type) and \
+- You have two read-only tools: call `get_caller_info` to recall {details} and \
 `get_appointment_request` to recall what you are trying to book (reason, \
 preferred dates/times, doctor or department, notes). Use them as needed — \
-do NOT invent any fact (no fake insurance numbers, no guessed birthdays, \
-no addresses you were not given). If a detail truly isn't available, say \
-honestly that you don't have it on hand.
+do NOT invent any fact. If a detail truly isn't available, say honestly that \
+you don't have it on hand.{type_note}
 
 Booking flow:
 - Answer the receptionist's questions using ONLY the tool-returned facts.
@@ -65,16 +73,30 @@ def build_system_prompt(
     *,
     caller_name: str | None = None,
     target_hospital_name: str | None = None,
+    appointment_type: str | None = None,
     now: datetime | None = None,
 ) -> str:
-    """Return the system prompt for the proxy-caller agent."""
+    """Return the system prompt for the proxy-caller agent.
+
+    The persona adapts to `appointment_type`: 'medical' keeps the clinical
+    details (DOB / insurance / patient type); any other type ('meeting',
+    'service', 'other') books a generic appointment and is told NOT to raise
+    or invent medical details.
+    """
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     caller = (caller_name or "").strip() or DEFAULT_CALLER_NAME
     target = (target_hospital_name or "").strip() or DEFAULT_TARGET_HOSPITAL
+    atype = (appointment_type or "medical").strip().lower()
+    if atype == "medical":
+        details, type_note = _DETAILS_MEDICAL, ""
+    else:
+        details, type_note = _DETAILS_GENERIC, _TYPE_NOTE_GENERIC.format(atype=atype)
     return _PERSONA.format(
         caller=caller,
         target=target,
         now_iso=current.astimezone(timezone.utc).isoformat(),
+        details=details,
+        type_note=type_note,
     )

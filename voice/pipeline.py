@@ -106,6 +106,7 @@ def build_pipeline_task(
     booking_requests: BookingRequestService | None = None,
     caller_name: str | None = None,
     target_hospital_name: str | None = None,
+    appointment_type: str | None = None,
     now: datetime | None = None,
 ) -> PipelineTask:
     """Build a ready-to-run PipelineTask around an injected transport.
@@ -140,6 +141,7 @@ def build_pipeline_task(
                 "content": build_system_prompt(
                     caller_name=caller_name,
                     target_hospital_name=target_hospital_name or settings.business_name,
+                    appointment_type=appointment_type,
                     now=now,
                 ),
             }

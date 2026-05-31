@@ -120,6 +120,21 @@ def test_create_booking_request_happy_path(client):
     assert body["status"] == "pending"
 
 
+def test_create_meeting_request_without_dob_ok(client):
+    payload = {
+        "full_name": "Bob Example",
+        "phone": "+15551234",
+        "appointment_reason": "sync meeting",
+        "appointment_type": "meeting",
+        "scheduled_call_at": "2026-06-02T09:00:00+00:00",
+        "caller_user_id": "user-42",
+        "aiva_chat_id": "chat-7",
+    }
+    r = client.post("/api/booking_requests", json=payload)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "pending"
+
+
 @pytest.mark.parametrize(
     "patch, expect_in_detail",
     [
@@ -164,6 +179,32 @@ def test_ice_servers_endpoint_includes_turn_when_configured(
     assert turn["username"] == "openrelayproject"
     assert turn["credential"] == "openrelayproject"
     assert "turn:openrelay.metered.ca:80" in str(turn["urls"])
+
+
+def test_offer_rejected_when_a_call_is_in_progress(seeded_client):
+    # Simulate a live pipeline; a second fresh offer must be refused (single call).
+    seeded_client.app.state.sessions.add(object())
+    offer = asyncio.run(_make_browser_like_offer())
+    r = seeded_client.post("/api/offer", json=offer)
+    assert r.status_code == 409
+    assert "in progress" in r.json()["detail"].lower()
+
+
+def test_offer_binds_specific_request_id(client):
+    a = client.post(
+        "/api/booking_requests", json={**_MIN_BOOKING_REQUEST, "full_name": "Older"}
+    ).json()["id"]
+    b = client.post(
+        "/api/booking_requests", json={**_MIN_BOOKING_REQUEST, "full_name": "Newer"}
+    ).json()["id"]
+
+    offer = asyncio.run(_make_browser_like_offer())
+    r = client.post(f"/api/offer?request_id={a}", json=offer)
+    assert r.status_code == 200, r.text
+
+    svc = client.app.state.requests
+    assert svc.get(a).status == "in_progress"  # bound to the one we asked for…
+    assert svc.get(b).status == "pending"      # …not latest_active() (which is b)
 
 
 def test_create_booking_request_rejects_bad_optional_date(client):

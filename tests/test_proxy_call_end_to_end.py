@@ -133,6 +133,34 @@ def test_followup_call_keeps_request_active(db_url):
     assert active is not None and active.id == request_id
 
 
+def test_meeting_confirmed_persists_without_dob(db_url):
+    """A non-medical (meeting) booking confirms + persists, and never has a DOB."""
+    init_db(db_url)
+    now = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
+    svc = BookingRequestService(now_fn=lambda: now)
+    r = svc.create(
+        full_name="Bob Roy",
+        phone="+1-555-1000",
+        appointment_reason="quarterly sync",
+        appointment_type="meeting",
+        target_hospital_name="Acme Corp",
+    )
+    assert r.ok and r.request is not None
+    rid = r.request.id
+
+    disp = ToolDispatcher(BookingRequestService(now_fn=lambda: now), booking_request_id=rid)
+    appt = disp.dispatch("get_appointment_request", {})
+    assert appt["appointment"]["appointment_type"] == "meeting"
+
+    out = disp.dispatch("record_appointment_confirmed", {"scheduled_time": "2026-06-05T14:30:00Z"})
+    assert out["ok"]
+
+    row = SqlAlchemyBookingRequestRepository().get(rid)
+    assert row is not None
+    assert row.status is BookingRequestStatus.CONFIRMED
+    assert row.date_of_birth is None  # never collected for a meeting
+
+
 def test_confirmed_row_is_no_longer_active_for_a_fresh_call(db_url):
     """After CONFIRMED, latest_active() should ignore the row; seed makes a new one."""
     init_db(db_url)

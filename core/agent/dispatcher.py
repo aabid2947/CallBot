@@ -153,20 +153,25 @@ class ToolDispatcher:
         view = self._bound_view()
         if isinstance(view, dict):  # error
             return view
-        return {
-            "ok": True,
-            "message": "Caller info.",
-            "caller": {
-                "full_name": view.full_name,
-                "date_of_birth": _date_or_none(view.date_of_birth),
-                "phone": view.phone,
-                "email": view.email,
-                "address": view.address,
-                "insurance_provider": view.insurance_provider,
-                "insurance_member_id": view.insurance_member_id,
-                "is_new_patient": view.is_new_patient,
-            },
+        caller: dict[str, Any] = {
+            "full_name": view.full_name,
+            "phone": view.phone,
+            "email": view.email,
+            "address": view.address,
+            "contact_info": view.contact_info,
         }
+        # Clinical fields are only relevant (and only collected) for medical
+        # appointments; for meeting/service/other the agent must not raise them.
+        if (view.appointment_type or "medical").lower() == "medical":
+            caller.update(
+                {
+                    "date_of_birth": _date_or_none(view.date_of_birth),
+                    "insurance_provider": view.insurance_provider,
+                    "insurance_member_id": view.insurance_member_id,
+                    "is_new_patient": view.is_new_patient,
+                }
+            )
+        return {"ok": True, "message": "Caller info.", "caller": caller}
 
     def _get_appointment_request(self, _args: dict) -> dict[str, Any]:
         view = self._bound_view()
@@ -176,6 +181,7 @@ class ToolDispatcher:
             "ok": True,
             "message": "Appointment details.",
             "appointment": {
+                "appointment_type": view.appointment_type,
                 "reason": view.appointment_reason,
                 "preferred_date_window_start": _date_or_none(
                     view.preferred_date_window_start
