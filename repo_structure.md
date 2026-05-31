@@ -65,6 +65,8 @@ voicestream/
 ├── prompt.md                   # The ordered build plan (one prompt per session)
 ├── repo_structure.md           # THIS file — live map of the repo
 ├── instruction.md              # Standing brief for future sessions (rules, gotchas, commands)
+├── CLAUDE.md                   # Top-of-context briefing: project + production VPS state + norms
+├── commands.md                 # Copy-paste ops cheatsheet (ssh, logs, restart, redeploy)
 ├── script.md                   # Live-call test runbook: edge cases to exercise as the receptionist
 └── README.md                   # What this is, accounts needed, setup, reuse example
 ```
