@@ -46,6 +46,21 @@ def _seed() -> tuple[BookingRequestService, int]:
     return svc, r.request.id
 
 
+def _seed_meeting() -> tuple[BookingRequestService, int]:
+    svc = BookingRequestService(now_fn=lambda: NOW)
+    r = svc.create(
+        full_name="Bob Roy",
+        phone="+1-555-1000",
+        appointment_reason="quarterly sync",
+        appointment_type="meeting",
+        target_hospital_name="Acme Corp",
+        contact_info="reach me at bob@example.com",
+        scheduled_call_at=NOW,
+    )
+    assert r.ok and r.request is not None
+    return svc, r.request.id
+
+
 @pytest.fixture
 def disp() -> ToolDispatcher:
     svc, rid = _seed()
@@ -224,3 +239,37 @@ def test_system_prompt_falls_back_to_defaults_when_unspecified():
     p = build_system_prompt(now=NOW)
     assert "the caller" in p
     assert "the hospital" in p
+
+
+# --------------------------------------------------------------------------- #
+# Appointment-type adaptation (Feature 4)
+# --------------------------------------------------------------------------- #
+def test_caller_info_omits_clinical_fields_for_non_medical():
+    svc, rid = _seed_meeting()
+    out = ToolDispatcher(svc, booking_request_id=rid).dispatch("get_caller_info", {})
+    assert out["ok"] is True
+    caller = out["caller"]
+    assert caller["full_name"] == "Bob Roy"
+    assert caller["contact_info"] == "reach me at bob@example.com"
+    assert "date_of_birth" not in caller
+    assert "insurance_provider" not in caller
+
+
+def test_appointment_request_exposes_type(disp):
+    out = disp.dispatch("get_appointment_request", {})
+    assert out["appointment"]["appointment_type"] == "medical"
+
+
+def test_system_prompt_medical_mentions_clinical_details():
+    p = build_system_prompt(
+        caller_name="A", target_hospital_name="H", appointment_type="medical", now=NOW
+    ).lower()
+    assert "date of birth" in p and "insurance" in p
+
+
+def test_system_prompt_meeting_drops_clinical_details():
+    p = build_system_prompt(
+        caller_name="A", target_hospital_name="H", appointment_type="meeting", now=NOW
+    ).lower()
+    assert "keep it general" in p
+    assert "do not bring up date of birth" in p

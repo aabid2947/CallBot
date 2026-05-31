@@ -100,6 +100,65 @@ def test_create_normalises_time_of_day_case(svc):
 
 
 # --------------------------------------------------------------------------- #
+# Generalised appointment types (Feature 4)
+# --------------------------------------------------------------------------- #
+def test_create_meeting_type_without_dob_is_allowed(svc):
+    r = svc.create(
+        full_name="Bob Example",
+        phone="+15551234",
+        appointment_reason="quarterly sync with the office manager",
+        appointment_type="meeting",
+    )
+    assert r.ok and r.request is not None
+    assert r.request.appointment_type == "meeting"
+    assert r.request.date_of_birth is None
+    assert r.request.status == "pending"
+
+
+def test_create_medical_requires_dob(svc):
+    r = svc.create(
+        full_name="No DOB",
+        phone="+1",
+        appointment_reason="checkup",
+        appointment_type="medical",  # default, made explicit
+    )
+    assert not r.ok and r.error is BookingRequestError.INVALID_INPUT
+
+
+def test_create_rejects_unknown_appointment_type(svc):
+    r = svc.create(
+        full_name="X",
+        phone="+1",
+        appointment_reason="x",
+        appointment_type="party",
+    )
+    assert not r.ok and r.error is BookingRequestError.INVALID_INPUT
+
+
+def test_create_persists_aiva_integration_fields(svc):
+    when = datetime(2026, 6, 2, 9, 0, tzinfo=UTC)
+    r = svc.create(
+        full_name="Aabid",
+        phone="+91-9876-543210",
+        appointment_reason="dinner reservation",
+        appointment_type="service",
+        target_phone="+91-1111-222333",
+        scheduled_call_at=when,
+        caller_user_id="user-42",
+        aiva_chat_id="chat-7",
+        contact_info="callback +91-9876-543210",
+    )
+    assert r.ok and r.request is not None
+    v = r.request
+    assert v.appointment_type == "service"
+    assert v.target_phone == "+91-1111-222333"
+    assert v.scheduled_call_at == when
+    assert v.caller_user_id == "user-42"
+    assert v.aiva_chat_id == "chat-7"
+    assert v.contact_info == "callback +91-9876-543210"
+
+
+# --------------------------------------------------------------------------- #
 # get / latest_active
 # --------------------------------------------------------------------------- #
 def test_get_and_latest_active(svc):

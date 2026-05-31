@@ -21,6 +21,19 @@ back on that row.
 A separate Phase-1 intake microservice (not in this repo) writes
 `BookingRequest` rows. This repo builds Phase 2 — the outbound call.
 
+**Feature 4 (2026 update).** AIVA is now that Phase-1 intake. `BookingRequest`
+is general-purpose (`appointment_type`: medical | meeting | service | other;
+DOB/insurance required only for `medical`) and carries AIVA-owned columns
+(`caller_user_id`, `aiva_chat_id`, `scheduled_call_at`, `contact_info`,
+`target_phone`, `call_triggered_at`, `outcome_notified_at`). The booking DB is
+SHARED with AIVA (same Supabase Postgres via `DATABASE_URL`): fresh DB →
+create_all; existing table → `scripts/upgrade_booking_schema.sql`. Phase-2 voice
+changes are DONE: `/api/offer` accepts an optional `request_id` (binds that row;
+falls back to `latest_active()`) and enforces ONE concurrent call (409 otherwise);
+the agent persona + `get_caller_info` adapt to `appointment_type` (clinical details
+only for `medical`); outcomes persist back to the SAME shared row via the existing
+`record_*` flow (now that `DATABASE_URL` points at Supabase).
+
 The `core/` package is designed to be installable on its own with only
 `SQLAlchemy` + `python-dotenv`, so any other Python service can import
 the booking domain without pulling in Pipecat / FastAPI / WebRTC.

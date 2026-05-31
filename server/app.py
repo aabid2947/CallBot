@@ -13,12 +13,13 @@ is tagged with its WebRTC `pc_id` so a session is easy to follow / debug.
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
         request_id: int,
         caller_name: str,
         target_hospital_name: str | None,
+        appointment_type: str | None = None,
     ):
         """Closure that binds an active BookingRequest to a fresh call."""
 
@@ -118,6 +120,7 @@ def create_app() -> FastAPI:
                     booking_requests=app.state.requests,
                     caller_name=caller_name,
                     target_hospital_name=target_hospital_name,
+                    appointment_type=appointment_type,
                 )
 
                 @transport.event_handler("on_client_connected")
@@ -185,7 +188,7 @@ def create_app() -> FastAPI:
         return {"iceServers": app.state.ice_servers}
 
     @app.post("/api/offer")
-    async def offer(body: dict) -> dict:
+    async def offer(body: dict, request_id: int | None = Query(default=None)) -> dict:
         """WebRTC SDP offer -> answer. Non-trickle (client sends full SDP).
 
         On a FRESH negotiation we bind the agent to the most recent active
@@ -202,15 +205,40 @@ def create_app() -> FastAPI:
 
         incoming_pc_id = body.get("pc_id")
         if not incoming_pc_id:
-            # Fresh negotiation -> resolve + claim the active request now.
-            active = app.state.requests.latest_active()
-            if active is None:
-                msg = (
-                    "No active booking request. POST one to "
-                    "/api/booking_requests or run scripts/seed_test_request.py."
+            # Fresh negotiation. ONE concurrent call only (the box is sized for
+            # a single caller) — refuse a new call while a pipeline is live.
+            if app.state.sessions:
+                raise HTTPException(
+                    status_code=409,
+                    detail="A call is already in progress; only one at a time.",
                 )
-                logger.warning(msg)
-                raise HTTPException(status_code=503, detail=msg)
+            # Bind to an explicit request_id when given (AIVA / the app drives a
+            # specific booking); otherwise fall back to the latest active row so
+            # the browser test client still works.
+            req_id = request_id if request_id is not None else body.get("request_id")
+            if req_id is not None:
+                try:
+                    active = app.state.requests.get(int(req_id))
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="request_id must be an integer.")
+                if active is None:
+                    raise HTTPException(
+                        status_code=404, detail=f"Booking request {req_id} not found."
+                    )
+                if active.status not in ("pending", "in_progress"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Booking request {req_id} is '{active.status}', not callable.",
+                    )
+            else:
+                active = app.state.requests.latest_active()
+                if active is None:
+                    msg = (
+                        "No active booking request. POST one to "
+                        "/api/booking_requests or run scripts/seed_test_request.py."
+                    )
+                    logger.warning(msg)
+                    raise HTTPException(status_code=503, detail=msg)
             progress = app.state.requests.mark_in_progress(active.id)
             if not progress.ok:
                 logger.error(
@@ -222,10 +250,11 @@ def create_app() -> FastAPI:
                 request_id=active.id,
                 caller_name=active.full_name,
                 target_hospital_name=active.target_hospital_name,
+                appointment_type=active.appointment_type,
             )
             logger.info(
-                "/api/offer bound to booking_request id={} ({})",
-                active.id, active.full_name,
+                "/api/offer bound to booking_request id={} ({}, type={})",
+                active.id, active.full_name, active.appointment_type,
             )
         else:
             # Renegotiation of an existing peer -> the handler reuses the
@@ -257,19 +286,12 @@ def create_app() -> FastAPI:
         """
         full_name = (body.get("full_name") or "").strip()
         appointment_reason = (body.get("appointment_reason") or "").strip()
-        dob_raw = body.get("date_of_birth")
         phone = (body.get("phone") or "").strip()
-        if not (full_name and appointment_reason and dob_raw and phone):
+        appointment_type = (body.get("appointment_type") or "medical").strip().lower()
+        if not (full_name and appointment_reason and phone):
             raise HTTPException(
                 status_code=400,
-                detail="full_name, appointment_reason, date_of_birth, and phone are required.",
-            )
-        try:
-            dob = date.fromisoformat(dob_raw)
-        except (TypeError, ValueError):
-            raise HTTPException(
-                status_code=400,
-                detail="date_of_birth must be an ISO date (YYYY-MM-DD).",
+                detail="full_name, appointment_reason, and phone are required.",
             )
 
         def _parse_optional_date(field: str) -> date | None:
@@ -284,11 +306,36 @@ def create_app() -> FastAPI:
                     detail=f"{field} must be an ISO date (YYYY-MM-DD).",
                 )
 
+        # DOB is required only for medical appointments; optional otherwise,
+        # but must be a valid ISO date whenever supplied.
+        if appointment_type == "medical" and not body.get("date_of_birth"):
+            raise HTTPException(
+                status_code=400,
+                detail="date_of_birth is required for medical appointments.",
+            )
+        dob = _parse_optional_date("date_of_birth")
+
+        scheduled_call_at: datetime | None = None
+        scheduled_raw = body.get("scheduled_call_at")
+        if scheduled_raw:
+            try:
+                scheduled_call_at = datetime.fromisoformat(scheduled_raw)
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=400,
+                    detail="scheduled_call_at must be an ISO 8601 datetime.",
+                )
+
+        contact_info = body.get("contact_info")
+        if isinstance(contact_info, (dict, list)):
+            contact_info = json.dumps(contact_info)
+
         result = app.state.requests.create(
             full_name=full_name,
-            date_of_birth=dob,
-            phone=phone,
             appointment_reason=appointment_reason,
+            phone=phone,
+            date_of_birth=dob,
+            appointment_type=appointment_type,
             email=body.get("email"),
             address=body.get("address"),
             insurance_provider=body.get("insurance_provider"),
@@ -305,6 +352,11 @@ def create_app() -> FastAPI:
             department=body.get("department"),
             notes=body.get("notes"),
             target_hospital_name=body.get("target_hospital_name"),
+            target_phone=body.get("target_phone"),
+            scheduled_call_at=scheduled_call_at,
+            caller_user_id=body.get("caller_user_id"),
+            aiva_chat_id=body.get("aiva_chat_id"),
+            contact_info=contact_info,
         )
         if not result.ok or result.request is None:
             logger.warning(

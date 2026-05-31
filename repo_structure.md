@@ -10,25 +10,25 @@ voicestream/
 │   ├── config.py               # Core-only settings loaded from env (.env): API keys, DATABASE_URL
 │   ├── booking/                # Booking-request domain: persistence + business logic
 │   │   ├── __init__.py         # Re-exports the public booking API
-│   │   ├── models.py           # SQLAlchemy: BookingRequest + BookingRequestStatus + UtcDateTime
+│   │   ├── models.py           # SQLAlchemy: BookingRequest (appointment_type; DOB optional; AIVA fields) + BookingRequestStatus + UtcDateTime
 │   │   ├── db.py               # Engine/session from DATABASE_URL (SQLite or Supabase/Postgres)
 │   │   ├── repository.py       # BookingRequestRepository (abstract) + SQLAlchemy impl
 │   │   └── proxy_service.py    # BookingRequestService: rules, transitions, seed_test_request
 │   └── agent/                  # Agent brain: proxy-caller persona + tools + dispatcher
 │       ├── __init__.py         # Re-exports the public agent API
-│       ├── prompts.py          # build_system_prompt: speaks AS the caller, first-person
+│       ├── prompts.py          # build_system_prompt: speaks AS the caller, first-person; adapts to appointment_type (clinical details only for 'medical')
 │       ├── tools.py            # OpenAI-style TOOL_SCHEMAS: 5 proxy-call tools
-│       └── dispatcher.py       # ToolDispatcher: bound to BookingRequestService + request_id
+│       └── dispatcher.py       # ToolDispatcher: bound to BookingRequestService + request_id; get_caller_info adapts by appointment_type (+ contact_info)
 ├── voice/                      # Pipecat pipeline assembly; uses core, transport-agnostic
 │   ├── __init__.py             # Re-exports the public voice API
 │   ├── config.py               # VoiceSettings + load_voice_settings() fail-fast key validation
-│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM -> Aura TTS
+│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM -> Aura TTS; passes appointment_type to the persona
 ├── transport/                  # The ONE swappable layer: web/WebRTC now, phone later
 │   ├── __init__.py             # Re-exports the transport API used by the server
 │   └── web.py                  # SmallWebRTC transport + SWAP SEAM (mobile/phone guidance)
 ├── server/                     # FastAPI app gluing transport+voice+core for THIS project
 │   ├── __init__.py             # Exposes app / create_app
-│   ├── app.py                  # FastAPI: /health, /api/offer, /api/booking_requests, per-call wiring + logs
+│   ├── app.py                  # FastAPI: /health, /api/offer (binds optional request_id, else latest_active; 409 single-call), /api/booking_requests, per-call wiring + logs
 │   ├── logging_setup.py        # loguru DEBUG file sink in logs/ + stdlib intercept (secret-safe)
 │   └── __main__.py             # `python -m server` entrypoint (uvicorn, HOST/PORT env)
 ├── testclient/                 # Throwaway local test frontend — NOT part of product
@@ -44,7 +44,8 @@ voicestream/
 │   ├── vps_info.sh             # Bash diagnostic dumped from VPS to inform deploy script
 │   ├── deploy_vps.sh           # Idempotent deploy: dnf, venv, systemd, nginx, Let's Encrypt
 │   ├── guardrail.sh            # Free-tier watchdog (polices shell procs, exempts services)
-│   └── install_coturn.sh       # Self-hosted TURN on the same VPS (fixes consent-freshness drops)
+│   ├── install_coturn.sh       # Self-hosted TURN on the same VPS (fixes consent-freshness drops)
+│   └── upgrade_booking_schema.sql # Idempotent ALTER adding Feature-4 columns to an existing shared booking_requests
 ├── tests/                      # Test suite
 │   ├── __init__.py             # Tests package marker
 │   ├── test_booking_request_persistence.py  # BookingRequest repo (CRUD, latest_active, outcome)

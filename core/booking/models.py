@@ -74,9 +74,15 @@ class BookingRequest(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
+    # Kind of appointment. Gates which fields are required (DOB / insurance are
+    # only required for 'medical'). One of: medical | meeting | service | other.
+    appointment_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="medical"
+    )
+
     # Identity / contact (what the agent says when posing as the user).
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    date_of_birth: Mapped[date] = mapped_column(Date, nullable=False)
+    date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
     phone: Mapped[str] = mapped_column(String(50), nullable=False)
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -102,6 +108,26 @@ class BookingRequest(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_hospital_name: Mapped[str | None] = mapped_column(
         String(200), nullable=True
+    )
+
+    # AIVA (Phase-1 intake) integration. Who owns the request, when AIVA should
+    # place the call, which AIVA chat to report back to, the number to dial
+    # later, and AIVA's fire-once / notify-once bookkeeping. All nullable —
+    # VoiceStream's own seed / browser-test flows never set them.
+    target_phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    scheduled_call_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    caller_user_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    aiva_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    contact_info: Mapped[str | None] = mapped_column(Text, nullable=True)
+    call_triggered_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    outcome_notified_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
     )
 
     # Lifecycle + outcome.
