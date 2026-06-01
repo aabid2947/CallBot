@@ -13,6 +13,7 @@ from .prompts import (
     build_system_prompt,
 )
 from .tools import (
+    END_CALL,
     GET_APPOINTMENT_REQUEST,
     GET_CALLER_INFO,
     RECORD_APPOINTMENT_CONFIRMED,
@@ -32,4 +33,5 @@ __all__ = [
     "RECORD_APPOINTMENT_CONFIRMED",
     "RECORD_APPOINTMENT_DECLINED",
     "RECORD_APPOINTMENT_FOLLOWUP",
+    "END_CALL",
 ]

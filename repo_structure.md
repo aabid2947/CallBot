@@ -17,12 +17,12 @@ voicestream/
 │   └── agent/                  # Agent brain: proxy-caller persona + tools + dispatcher
 │       ├── __init__.py         # Re-exports the public agent API
 │       ├── prompts.py          # build_system_prompt: speaks AS the caller, first-person; adapts to appointment_type (clinical details only for 'medical')
-│       ├── tools.py            # OpenAI-style TOOL_SCHEMAS: 5 proxy-call tools
-│       └── dispatcher.py       # ToolDispatcher: bound to BookingRequestService + request_id; get_caller_info adapts by appointment_type (+ contact_info)
+│       ├── tools.py            # OpenAI-style TOOL_SCHEMAS: 6 proxy-call tools (incl. end_call = hang up)
+│       └── dispatcher.py       # ToolDispatcher: bound to BookingRequestService + request_id; get_caller_info adapts by appointment_type (+ contact_info); end_call = benign ack (real hang-up is in voice/); record_* on an already-resolved booking returns an 'already_recorded' end-the-call signal (not a raw invalid_transition)
 ├── voice/                      # Pipecat pipeline assembly; uses core, transport-agnostic
 │   ├── __init__.py             # Re-exports the public voice API
 │   ├── config.py               # VoiceSettings + load_voice_settings() fail-fast key validation
-│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM -> Aura TTS; passes appointment_type to the persona
+│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM -> Aura TTS; passes appointment_type to the persona; intercepts end_call -> EndTaskFrame (graceful hang-up after goodbye flushes)
 ├── transport/                  # The ONE swappable layer: web/WebRTC now, phone later
 │   ├── __init__.py             # Re-exports the transport API used by the server
 │   └── web.py                  # SmallWebRTC transport + SWAP SEAM (mobile/phone guidance)

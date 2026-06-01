@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from core.booking import (
+    BookingRequestError,
     BookingRequestResult,
     BookingRequestService,
     BookingRequestView,
@@ -29,6 +30,12 @@ ERR_UNKNOWN_TOOL = "unknown_tool"
 ERR_INVALID_ARGUMENTS = "invalid_arguments"
 ERR_NOT_BOUND = "not_bound"
 ERR_NOT_FOUND = "not_found"
+
+# The booking is "active" only while PENDING / IN_PROGRESS; any other status
+# means an outcome is already on file. A record_* call against such a row comes
+# back as INVALID_TRANSITION — which the model misreads as "retry, or try a
+# different record_* tool". We reshape that into a clear terminal signal.
+_INVALID_TRANSITION = BookingRequestError.INVALID_TRANSITION.value
 
 
 def _err(error: str, message: str) -> dict[str, Any]:
@@ -101,6 +108,7 @@ class ToolDispatcher:
             tools.RECORD_APPOINTMENT_CONFIRMED: self._record_confirmed,
             tools.RECORD_APPOINTMENT_DECLINED: self._record_declined,
             tools.RECORD_APPOINTMENT_FOLLOWUP: self._record_followup,
+            tools.END_CALL: self._end_call,
         }
 
     @property
@@ -197,25 +205,67 @@ class ToolDispatcher:
             },
         }
 
+    def _already_recorded(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Reshape a record_* failure into a clear terminal signal.
+
+        A record_* call fails with INVALID_TRANSITION ONLY when the booking
+        has already left the active states — i.e. an outcome is already on
+        file. Returning the raw error makes the model retry or try a
+        different record_* tool (the repeated-`invalid_transition` flail).
+        Instead, tell it plainly: you're done, say goodbye and hang up.
+        """
+        if result.get("ok") or result.get("error") != _INVALID_TRANSITION:
+            return result
+        view = self._svc.get(self._request_id)  # type: ignore[arg-type]
+        summary = _view_to_summary(view) if view is not None else None
+        status = summary["status"] if summary else "resolved"
+        return {
+            "ok": True,
+            "already_recorded": True,
+            "message": (
+                f"This booking already has a recorded outcome ({status}); "
+                "there is nothing more to record. The call is finished — say "
+                "a brief goodbye and call end_call. Do NOT record again and do "
+                "NOT try another record tool."
+            ),
+            "request": summary,
+        }
+
     def _record_confirmed(self, args: dict) -> dict[str, Any]:
         scheduled = _parse_dt(_require(args, "scheduled_time"), "scheduled_time")
-        return _request_result_to_dict(
-            self._svc.record_confirmed(
-                self._request_id,  # type: ignore[arg-type]
-                scheduled,
-                confirmation_number=args.get("confirmation_number") or None,
-                notes=args.get("notes") or None,
+        return self._already_recorded(
+            _request_result_to_dict(
+                self._svc.record_confirmed(
+                    self._request_id,  # type: ignore[arg-type]
+                    scheduled,
+                    confirmation_number=args.get("confirmation_number") or None,
+                    notes=args.get("notes") or None,
+                )
             )
         )
 
     def _record_declined(self, args: dict) -> dict[str, Any]:
         reason = _require(args, "reason")
-        return _request_result_to_dict(
-            self._svc.record_declined(self._request_id, reason)  # type: ignore[arg-type]
+        return self._already_recorded(
+            _request_result_to_dict(
+                self._svc.record_declined(self._request_id, reason)  # type: ignore[arg-type]
+            )
         )
 
     def _record_followup(self, args: dict) -> dict[str, Any]:
         notes = _require(args, "notes")
-        return _request_result_to_dict(
-            self._svc.record_followup(self._request_id, notes)  # type: ignore[arg-type]
+        return self._already_recorded(
+            _request_result_to_dict(
+                self._svc.record_followup(self._request_id, notes)  # type: ignore[arg-type]
+            )
         )
+
+    def _end_call(self, _args: dict) -> dict[str, Any]:
+        """Acknowledge a hang-up request.
+
+        Ending the call is a transport/pipeline concern, so the actual
+        teardown happens in the voice layer (which intercepts this tool and
+        pushes an EndTaskFrame). Core only returns a benign ack so the
+        schema-to-handler contract holds and a direct dispatch never errors.
+        """
+        return {"ok": True, "message": "Call ended."}

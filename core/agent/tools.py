@@ -14,6 +14,7 @@ GET_APPOINTMENT_REQUEST = "get_appointment_request"
 RECORD_APPOINTMENT_CONFIRMED = "record_appointment_confirmed"
 RECORD_APPOINTMENT_DECLINED = "record_appointment_declined"
 RECORD_APPOINTMENT_FOLLOWUP = "record_appointment_followup"
+END_CALL = "end_call"
 
 _ISO = "ISO 8601 timestamp, e.g. 2026-06-09T15:00:00Z. Assume UTC."
 
@@ -112,6 +113,20 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "required": ["notes"],
             },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": END_CALL,
+            "description": (
+                "Hang up and end the phone call. Call this once the call is "
+                "finished — after you have recorded exactly one outcome and "
+                "said a brief goodbye. Do NOT call it before recording an "
+                "outcome unless the other person has clearly hung up or ended "
+                "the call. No arguments."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
 ]

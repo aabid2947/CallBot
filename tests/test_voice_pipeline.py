@@ -50,7 +50,7 @@ def test_missing_keys_fail_fast(monkeypatch):
 
 def test_function_schemas_match_core_tools():
     schemas = _function_schemas()
-    assert len(schemas) == len(TOOL_SCHEMAS) == 5
+    assert len(schemas) == len(TOOL_SCHEMAS) == 6
     assert {s.name for s in schemas} == {
         t["function"]["name"] for t in TOOL_SCHEMAS
     }

@@ -85,6 +85,7 @@ def test_schemas_are_openai_shaped_and_map_to_handlers(disp):
         "record_appointment_confirmed",
         "record_appointment_declined",
         "record_appointment_followup",
+        "end_call",
     }
 
 
@@ -149,6 +150,13 @@ def test_record_appointment_followup(disp):
     assert "call back" in out["request"]["outcome_notes"]
 
 
+def test_end_call_acks(disp):
+    # Core only acknowledges; the real hang-up happens in the voice layer.
+    out = disp.dispatch("end_call", {})
+    assert out["ok"] is True
+    assert json.dumps(out)  # JSON-serialisable
+
+
 def test_arguments_accepted_as_json_string(disp):
     out = disp.dispatch(
         "record_appointment_confirmed",
@@ -160,18 +168,26 @@ def test_arguments_accepted_as_json_string(disp):
 # --------------------------------------------------------------------------- #
 # Failure modes — structured, never exceptions
 # --------------------------------------------------------------------------- #
-def test_business_rule_failure_passes_through(disp):
-    # First call confirms; second attempt should fail with INVALID_TRANSITION.
+def test_second_record_signals_already_recorded(disp):
+    # First call confirms; any further record_* must NOT surface a raw
+    # invalid_transition (which the model misreads as "retry / try another
+    # tool"). It gets a clear "already recorded — end the call" signal instead.
     disp.dispatch(
         "record_appointment_confirmed",
         {"scheduled_time": "2026-06-09T15:00:00Z"},
     )
-    out = disp.dispatch(
-        "record_appointment_confirmed",
-        {"scheduled_time": "2026-06-10T15:00:00Z"},
-    )
-    assert out["ok"] is False
-    assert out["error"] == "invalid_transition"  # BookingRequestError surfaced
+    # A second confirm, AND a different record_* tool, both terminate cleanly.
+    for name, args in (
+        ("record_appointment_confirmed", {"scheduled_time": "2026-06-10T15:00:00Z"}),
+        ("record_appointment_declined", {"reason": "changed my mind"}),
+        ("record_appointment_followup", {"notes": "call back"}),
+    ):
+        out = disp.dispatch(name, args)
+        assert out["ok"] is True
+        assert out["already_recorded"] is True
+        assert "end_call" in out["message"]
+        assert out["request"]["status"] == "confirmed"  # outcome unchanged
+        assert json.dumps(out)  # JSON-serialisable
 
 
 def test_unknown_tool(disp):
@@ -239,6 +255,23 @@ def test_system_prompt_falls_back_to_defaults_when_unspecified():
     p = build_system_prompt(now=NOW)
     assert "the caller" in p
     assert "the hospital" in p
+
+
+def test_system_prompt_has_wind_down_and_end_call():
+    p = build_system_prompt(now=NOW).lower()
+    assert "end_call" in p                 # the agent knows how to hang up
+    assert "do not start the conversation over" in p
+    assert "do not re-introduce yourself" in p
+
+
+def test_system_prompt_forbids_inventing_times():
+    p = build_system_prompt(now=NOW).lower()
+    # Must not invent/propose a time, and a non-yes is not confirmation.
+    assert "invent, guess, or propose an appointment time" in p
+    assert "is not confirmation" in p
+    # The old concrete example time was being parroted into live calls as a
+    # fabricated slot — it must not appear verbatim in the prompt anymore.
+    assert "tuesday the ninth" not in p
 
 
 # --------------------------------------------------------------------------- #

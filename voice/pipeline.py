@@ -15,18 +15,19 @@ from typing import Protocol, runtime_checkable
 
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
+from pipecat.frames.frames import EndTaskFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
-from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.llm_service import FunctionCallParams, LLMContext
 
-from core.agent import TOOL_SCHEMAS, ToolDispatcher, build_system_prompt
+from core.agent import END_CALL, TOOL_SCHEMAS, ToolDispatcher, build_system_prompt
 from core.booking import BookingRequestService
 
 from .config import VoiceSettings, load_voice_settings
@@ -62,9 +63,23 @@ def _function_schemas() -> list[FunctionSchema]:
 
 
 def _register_tools(llm: GroqLLMService, dispatcher: ToolDispatcher) -> None:
-    """Wire every core tool to the dispatcher via one async handler."""
+    """Wire every core tool to the dispatcher via one async handler.
+
+    `end_call` is special: it is a call-lifecycle action (not a booking
+    operation), so instead of touching the dispatcher we end the pipeline
+    gracefully. Pushing an `EndTaskFrame` upstream lets any already-queued
+    audio (the agent's goodbye) flush before the task stops — and stops the
+    agent from re-greeting / re-pitching once the booking is done.
+    """
 
     async def handler(params: FunctionCallParams) -> None:
+        if params.function_name == END_CALL:
+            # The goodbye was already spoken earlier in this same turn; ack the
+            # tool, then end the task. EndTaskFrame upstream ends gracefully —
+            # queued audio (the goodbye) flushes before the pipeline stops.
+            await params.result_callback({"ok": True, "message": "Call ended."})
+            await params.llm.push_frame(EndTaskFrame(), FrameDirection.UPSTREAM)
+            return
         # dispatcher never raises and returns a JSON-serialisable dict,
         # so the model can always recover and keep talking.
         result = dispatcher.dispatch(params.function_name, params.arguments)
