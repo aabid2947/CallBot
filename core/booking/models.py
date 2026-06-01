@@ -132,7 +132,16 @@ class BookingRequest(Base):
 
     # Lifecycle + outcome.
     status: Mapped[BookingRequestStatus] = mapped_column(
-        Enum(BookingRequestStatus, native_enum=False, length=20),
+        # Store/query the enum VALUE ('pending'), not the member NAME ('PENDING').
+        # The shared booking_requests table is also written by AIVA (Phase-1 intake)
+        # via supabase-py, which inserts the lowercase value; without values_callable
+        # SQLAlchemy would store/query by name and never match AIVA's rows.
+        Enum(
+            BookingRequestStatus,
+            native_enum=False,
+            length=20,
+            values_callable=lambda enum: [member.value for member in enum],
+        ),
         nullable=False,
         default=BookingRequestStatus.PENDING,
         index=True,

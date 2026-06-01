@@ -21,3 +21,10 @@ alter table booking_requests
 
 create index if not exists booking_requests_caller_user_id_idx
     on booking_requests (caller_user_id);
+
+-- Normalize legacy status values to the lowercase enum VALUE.
+-- SQLAlchemy previously stored the member NAME ('PENDING','CONFIRMED',…); the model
+-- now uses values_callable so it stores/queries the value ('pending','confirmed',…),
+-- matching what AIVA writes. Run this AFTER deploying the updated models.py, or
+-- VoiceStream's name-based reads of the lowercased rows will fail.
+update booking_requests set status = lower(status);
