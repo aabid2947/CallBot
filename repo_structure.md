@@ -16,13 +16,15 @@ voicestream/
 │   │   └── proxy_service.py    # BookingRequestService: rules, transitions, seed_test_request
 │   └── agent/                  # Agent brain: proxy-caller persona + tools + dispatcher
 │       ├── __init__.py         # Re-exports the public agent API
-│       ├── prompts.py          # build_system_prompt: speaks AS the caller, first-person; adapts to appointment_type (clinical details only for 'medical')
+│       ├── prompts.py          # build_system_prompt: speaks AS the caller, first-person; adapts to appointment_type (clinical details only for 'medical'); blunt "CALL tools, never type them" line (V1); a hold/"one moment" is NOT an outcome, followup only for genuine non-resolution (V2)
 │       ├── tools.py            # OpenAI-style TOOL_SCHEMAS: 6 proxy-call tools (incl. end_call = hang up)
+│       ├── tool_text.py        # PURE (no Pipecat): extract_leaked_tool_calls() — parses tool calls the model leaks as text (<function=NAME>{json}</function>, <function(NAME {json}), NAME({json})) -> (cleaned_text, [(name,args)]); KNOWN_TOOLS guard (V1)
 │       └── dispatcher.py       # ToolDispatcher: bound to BookingRequestService + request_id; get_caller_info adapts by appointment_type (+ contact_info); end_call = benign ack (real hang-up is in voice/); record_* on an already-resolved booking returns an 'already_recorded' end-the-call signal (not a raw invalid_transition)
 ├── voice/                      # Pipecat pipeline assembly; uses core, transport-agnostic
 │   ├── __init__.py             # Re-exports the public voice API
 │   ├── config.py               # VoiceSettings + load_voice_settings() fail-fast key validation
-│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM -> Aura TTS; passes appointment_type to the persona; intercepts end_call -> EndTaskFrame (graceful hang-up after goodbye flushes)
+│   ├── tool_call_sanitizer.py  # ToolCallLeakSanitizer(FrameProcessor): sits LLM->TTS, strips leaked tool-call text so TTS never speaks it + fires the real tool (end_call -> EndTaskFrame upstream; record_*/get_* -> dispatcher) (V1)
+│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM -> ToolCallLeakSanitizer -> Aura TTS; passes appointment_type to the persona; intercepts end_call -> EndTaskFrame (graceful hang-up after goodbye flushes)
 ├── transport/                  # The ONE swappable layer: web/WebRTC now, phone later
 │   ├── __init__.py             # Re-exports the transport API used by the server
 │   └── web.py                  # SmallWebRTC transport + SWAP SEAM (mobile/phone guidance)
@@ -37,7 +39,9 @@ voicestream/
 ├── tools/                      # Dev tools (app-level, not in publishable core)
 │   ├── __init__.py             # Tools package marker
 │   ├── latency_probe.py        # `python -m tools.latency_probe` real-API latency
-│   └── groq_limits.py          # `python -m tools.groq_limits` prints x-ratelimit-* headers
+│   ├── groq_limits.py          # `python -m tools.groq_limits` prints x-ratelimit-* headers
+│   ├── test_call_flows.py      # TEXT harness for the proxy-caller brain (no audio/WebRTC): scripted receptionist + Groq tool-calling vs an in-memory booking; asserts no-fabrication / confirm-before-record / end_call / no-flailing; --repeat for pass-rate. Writes call_test_transcript.md + results.json
+│   └── _selftest_call_flows.py # Offline self-test for test_call_flows' assertion engine (synthetic calls, no network/key)
 ├── scripts/                    # Standalone ops scripts (app-level)
 │   ├── tunnel.py               # One command: starts the server + opens an ngrok tunnel
 │   ├── seed_test_request.py    # Seed the Md Aabid Hussain BookingRequest for Phase-2 testing
@@ -50,7 +54,8 @@ voicestream/
 │   ├── __init__.py             # Tests package marker
 │   ├── test_booking_request_persistence.py  # BookingRequest repo (CRUD, latest_active, outcome)
 │   ├── test_booking_request_service.py      # BookingRequestService rules + transitions + seed
-│   ├── test_proxy_agent_dispatcher.py       # Persona + tool schemas + dispatcher behaviour
+│   ├── test_proxy_agent_dispatcher.py       # Persona + tool schemas + dispatcher behaviour (incl. V2: a hold is not a followup)
+│   ├── test_tool_call_sanitizer.py          # V1: extract_leaked_tool_calls (pure, all leak syntaxes) + ToolCallLeakSanitizer processor (strips text, ends call / dispatches record_*)
 │   ├── test_voice_pipeline.py               # Pipeline isolation (stub transport)
 │   ├── test_server.py                       # Boot, WebRTC negotiation, /api/booking_requests
 │   ├── test_proxy_call_end_to_end.py        # Full proxy call -> on-disk persistence
@@ -69,6 +74,7 @@ voicestream/
 ├── CLAUDE.md                   # Top-of-context briefing: project + production VPS state + norms
 ├── commands.md                 # Copy-paste ops cheatsheet (ssh, logs, restart, redeploy)
 ├── script.md                   # Live-call test runbook: edge cases to exercise as the receptionist
+├── voice_flow_problem.md       # Hand-off brief: problems found by tools/test_call_flows.py + fixes (V1 plain-text tool-call leak, V2 premature followup)
 └── README.md                   # What this is, accounts needed, setup, reuse example
 ```
 

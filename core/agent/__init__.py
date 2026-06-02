@@ -12,6 +12,7 @@ from .prompts import (
     DEFAULT_TARGET_HOSPITAL,
     build_system_prompt,
 )
+from .tool_text import KNOWN_TOOLS, extract_leaked_tool_calls
 from .tools import (
     END_CALL,
     GET_APPOINTMENT_REQUEST,
@@ -24,6 +25,8 @@ from .tools import (
 
 __all__ = [
     "ToolDispatcher",
+    "extract_leaked_tool_calls",
+    "KNOWN_TOOLS",
     "build_system_prompt",
     "DEFAULT_CALLER_NAME",
     "DEFAULT_TARGET_HOSPITAL",

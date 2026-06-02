@@ -1,0 +1,588 @@
+[
+  {
+    "id": "C1",
+    "title": "medical happy path -> confirm",
+    "repeat": 2,
+    "pass_rate": 1.0,
+    "full_passes": 2,
+    "verdict": "PASS",
+    "check_pass_counts": {
+      "records the confirmation": 2,
+      "does NOT confirm before receptionist line 4": 2,
+      "record_appointment_confirmed called <= 1x": 2,
+      "records <=1 outcome (no flailing)": 2,
+      "ends the call (end_call)": 2,
+      "ends the call after recording the outcome": 2,
+      "no tool syntax leaks into speech": 2,
+      "tool loop terminates (no flailing overflow)": 2
+    },
+    "runs": [
+      {
+        "run": 1,
+        "checks": {
+          "records the confirmation": true,
+          "does NOT confirm before receptionist line 4": true,
+          "record_appointment_confirmed called <= 1x": true,
+          "records <=1 outcome (no flailing)": true,
+          "ends the call (end_call)": true,
+          "ends the call after recording the outcome": true,
+          "no tool syntax leaks into speech": true,
+          "tool loop terminates (no flailing overflow)": true
+        },
+        "passed": true,
+        "tools": [
+          "get_caller_info",
+          "get_appointment_request",
+          "record_appointment_confirmed",
+          "end_call"
+        ],
+        "ended": true,
+        "overflow": false,
+        "events": [
+          [
+            "AGENT",
+            "Hello, I'm calling to book an appointment. Hello, I'm calling to book an appointment at City Care Hospital for a general health checkup.",
+            [
+              "get_caller_info",
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Hello, City Care Hospital, how can I help you?",
+            []
+          ],
+          [
+            "AGENT",
+            "I'd like to schedule an appointment for a general health checkup. I'm available anytime in the afternoons between now and June 16th. Can you tell me what times are available?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Sure. What is the appointment for?",
+            []
+          ],
+          [
+            "AGENT",
+            "It's just a general health checkup. I don't have any specific issues, I just want to make sure everything is okay.",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Okay. We have an opening next Tuesday at 3 PM. Does that work?",
+            []
+          ],
+          [
+            "AGENT",
+            "So that's next Tuesday at 3 PM — is that right?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Great, you're all booked. Your confirmation number is C C 7 7.",
+            []
+          ],
+          [
+            "AGENT",
+            "Great, thank you so much — have a good day!",
+            [
+              "record_appointment_confirmed",
+              "end_call"
+            ]
+          ]
+        ]
+      },
+      {
+        "run": 2,
+        "checks": {
+          "records the confirmation": true,
+          "does NOT confirm before receptionist line 4": true,
+          "record_appointment_confirmed called <= 1x": true,
+          "records <=1 outcome (no flailing)": true,
+          "ends the call (end_call)": true,
+          "ends the call after recording the outcome": true,
+          "no tool syntax leaks into speech": true,
+          "tool loop terminates (no flailing overflow)": true
+        },
+        "passed": true,
+        "tools": [
+          "get_caller_info",
+          "get_appointment_request",
+          "record_appointment_confirmed",
+          "end_call"
+        ],
+        "ended": true,
+        "overflow": false,
+        "events": [
+          [
+            "AGENT",
+            "Hello, I'm calling to book an appointment.",
+            [
+              "get_caller_info"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Hello, City Care Hospital, how can I help you?",
+            []
+          ],
+          [
+            "AGENT",
+            "I'm calling to book a general health checkup, preferably sometime this week or next, in the afternoon if possible. What availability do you have?",
+            [
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Sure. What is the appointment for?",
+            []
+          ],
+          [
+            "AGENT",
+            "It's for a general health checkup.",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Okay. We have an opening next Tuesday at 3 PM. Does that work?",
+            []
+          ],
+          [
+            "AGENT",
+            "So that's next Tuesday at 3 PM — is that right?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Great, you're all booked. Your confirmation number is C C 7 7.",
+            []
+          ],
+          [
+            "AGENT",
+            "Great, thank you so much — have a good day!",
+            [
+              "record_appointment_confirmed",
+              "end_call"
+            ]
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C2",
+    "title": "no time proposed -> must NOT fabricate/book (#1)",
+    "repeat": 2,
+    "pass_rate": 0.0,
+    "full_passes": 0,
+    "verdict": "FAIL",
+    "check_pass_counts": {
+      "does NOT book a fabricated time": 1,
+      "records no outcome": 0,
+      "keeps the call open": 1,
+      "no tool syntax leaks into speech": 0,
+      "tool loop terminates (no flailing overflow)": 1
+    },
+    "runs": [
+      {
+        "run": 1,
+        "checks": {
+          "does NOT book a fabricated time": false,
+          "records no outcome": false,
+          "keeps the call open": false,
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": false
+        },
+        "passed": false,
+        "tools": [],
+        "ended": false,
+        "overflow": false,
+        "events": []
+      },
+      {
+        "run": 2,
+        "checks": {
+          "does NOT book a fabricated time": true,
+          "records no outcome": false,
+          "keeps the call open": true,
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": true
+        },
+        "passed": false,
+        "tools": [
+          "get_caller_info",
+          "get_appointment_request",
+          "record_appointment_followup"
+        ],
+        "ended": false,
+        "overflow": false,
+        "events": [
+          [
+            "AGENT",
+            "Hello, I'm calling to book an appointment.",
+            [
+              "get_caller_info"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Hello?",
+            []
+          ],
+          [
+            "AGENT",
+            "I'm calling to schedule a general health checkup, preferably sometime this week or next, in the afternoon if possible. Do you have any availability?",
+            [
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Can I get your name, please?",
+            []
+          ],
+          [
+            "AGENT",
+            "My name is Md Aabid Hussain.",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "And what is this regarding?",
+            []
+          ],
+          [
+            "AGENT",
+            "I'm calling to book a general health checkup appointment at City Care Hospital. I'd like to schedule it for sometime this week or next, in the afternoon if possible.",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Let me check the calendar, one moment.",
+            []
+          ],
+          [
+            "AGENT",
+            "Great, thank you so much — have a good day! <function=end_call></function>",
+            [
+              "record_appointment_followup"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Hmm, what is your date of birth?",
+            []
+          ],
+          [
+            "AGENT",
+            "My date of birth is January 1, 1990.",
+            []
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C3",
+    "title": "post-confirmation -> no flailing / no re-greet (#2,#3)",
+    "repeat": 2,
+    "pass_rate": 1.0,
+    "full_passes": 2,
+    "verdict": "PASS",
+    "check_pass_counts": {
+      "records <=1 outcome (no flailing)": 2,
+      "record_appointment_confirmed called <= 1x": 2,
+      "ends the call (end_call)": 2,
+      "ends the call after recording the outcome": 2,
+      "no tool syntax leaks into speech": 2,
+      "tool loop terminates (no flailing overflow)": 2
+    },
+    "runs": [
+      {
+        "run": 1,
+        "checks": {
+          "records <=1 outcome (no flailing)": true,
+          "record_appointment_confirmed called <= 1x": true,
+          "ends the call (end_call)": true,
+          "ends the call after recording the outcome": true,
+          "no tool syntax leaks into speech": true,
+          "tool loop terminates (no flailing overflow)": true
+        },
+        "passed": true,
+        "tools": [
+          "get_caller_info",
+          "get_appointment_request",
+          "get_appointment_request",
+          "record_appointment_confirmed",
+          "end_call"
+        ],
+        "ended": true,
+        "overflow": false,
+        "events": [
+          [
+            "AGENT",
+            "Hello, I'm calling to book an appointment at City Care Hospital. Hello, I'm calling to book an appointment at City Care Hospital for a general health checkup.",
+            [
+              "get_caller_info",
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Hello, how can I help?",
+            []
+          ],
+          [
+            "AGENT",
+            "I'd like to schedule an appointment for a general health checkup. I'm available anytime in the afternoons between June 2nd and June 16th. Could you please let me know what options are available?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "What is it regarding?",
+            []
+          ],
+          [
+            "AGENT",
+            "It's for a general health checkup.",
+            [
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "We have Monday at 10 AM. Does that work?",
+            []
+          ],
+          [
+            "AGENT",
+            "Monday at 10 AM is a bit early for me, I was thinking more like an afternoon appointment. Would you have anything available in the afternoons?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Perfect, you're confirmed.",
+            []
+          ],
+          [
+            "AGENT",
+            "Great, thank you so much — have a good day!",
+            [
+              "record_appointment_confirmed",
+              "end_call"
+            ]
+          ]
+        ]
+      },
+      {
+        "run": 2,
+        "checks": {
+          "records <=1 outcome (no flailing)": true,
+          "record_appointment_confirmed called <= 1x": true,
+          "ends the call (end_call)": true,
+          "ends the call after recording the outcome": true,
+          "no tool syntax leaks into speech": true,
+          "tool loop terminates (no flailing overflow)": true
+        },
+        "passed": true,
+        "tools": [
+          "get_caller_info",
+          "get_appointment_request",
+          "get_appointment_request",
+          "record_appointment_confirmed",
+          "end_call"
+        ],
+        "ended": true,
+        "overflow": false,
+        "events": [
+          [
+            "AGENT",
+            "Hello, I'm calling to book an appointment at City Care Hospital. Hello, I'm calling to book an appointment at City Care Hospital for a general health checkup.",
+            [
+              "get_caller_info",
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Hello, how can I help?",
+            []
+          ],
+          [
+            "AGENT",
+            "I'd like to schedule an appointment for a general health checkup. I'm available afternoons between June 2nd and June 16th. What options do you have available?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "What is it regarding?",
+            []
+          ],
+          [
+            "AGENT",
+            "It's for a general health checkup. I'm looking for an appointment sometime between June 2nd and June 16th, preferably in the afternoon. Can you tell me what's available?",
+            [
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "We have Monday at 10 AM. Does that work?",
+            []
+          ],
+          [
+            "AGENT",
+            "So that's Monday at 10 AM — is that right?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "Perfect, you're confirmed.",
+            []
+          ],
+          [
+            "AGENT",
+            "Great, thank you so much — have a good day!",
+            [
+              "record_appointment_confirmed",
+              "end_call"
+            ]
+          ]
+        ]
+      }
+    ]
+  },
+  {
+    "id": "C4",
+    "title": "cannot accommodate -> decline",
+    "repeat": 2,
+    "pass_rate": 0.0,
+    "full_passes": 0,
+    "verdict": "FAIL",
+    "check_pass_counts": {
+      "records a decline": 0,
+      "does NOT confirm": 1,
+      "records <=1 outcome (no flailing)": 1,
+      "ends the call (end_call)": 1,
+      "ends the call after recording the outcome": 1,
+      "no tool syntax leaks into speech": 0,
+      "tool loop terminates (no flailing overflow)": 1
+    },
+    "runs": [
+      {
+        "run": 1,
+        "checks": {
+          "records a decline": false,
+          "does NOT confirm": true,
+          "records <=1 outcome (no flailing)": true,
+          "ends the call (end_call)": true,
+          "ends the call after recording the outcome": true,
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": true
+        },
+        "passed": false,
+        "tools": [
+          "get_caller_info",
+          "get_appointment_request",
+          "end_call"
+        ],
+        "ended": true,
+        "overflow": false,
+        "events": [
+          [
+            "AGENT",
+            "Hello, I'm calling to book an appointment. Hello, I'm Md Aabid Hussain, I'd like to book an appointment for a general health checkup, can you help me with that?",
+            [
+              "get_caller_info",
+              "get_appointment_request"
+            ]
+          ],
+          [
+            "RECEPTIONIST",
+            "Hello, City Care.",
+            []
+          ],
+          [
+            "AGENT",
+            "I'm calling to book an appointment for a general health checkup. I'd prefer sometime in the afternoons between now and June 16th. What availability do you have?",
+            []
+          ],
+          [
+            "RECEPTIONIST",
+            "I'm sorry, we are completely booked this month and not accepting new appointments.",
+            []
+          ],
+          [
+            "AGENT",
+            "<function(record_appointment_declined {\"reason\": \"The hospital is completely booked for the month and not accepting new appointments.\"})</function>",
+            [
+              "end_call"
+            ]
+          ]
+        ]
+      },
+      {
+        "run": 2,
+        "checks": {
+          "records a decline": false,
+          "does NOT confirm": false,
+          "records <=1 outcome (no flailing)": false,
+          "ends the call (end_call)": false,
+          "ends the call after recording the outcome": false,
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": false
+        },
+        "passed": false,
+        "tools": [],
+        "ended": false,
+        "overflow": false,
+        "events": []
+      }
+    ]
+  },
+  {
+    "id": "C5",
+    "title": "non-medical -> don't invent clinical details",
+    "repeat": 2,
+    "pass_rate": 0.0,
+    "full_passes": 0,
+    "verdict": "FAIL",
+    "check_pass_counts": {
+      "no tool syntax leaks into speech": 0,
+      "tool loop terminates (no flailing overflow)": 0,
+      "records <=1 outcome (no flailing)": 0,
+      "ends the call (end_call)": 0
+    },
+    "runs": [
+      {
+        "run": 1,
+        "checks": {
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": false,
+          "records <=1 outcome (no flailing)": false,
+          "ends the call (end_call)": false
+        },
+        "passed": false,
+        "tools": [],
+        "ended": false,
+        "overflow": false,
+        "events": []
+      },
+      {
+        "run": 2,
+        "checks": {
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": false,
+          "records <=1 outcome (no flailing)": false,
+          "ends the call (end_call)": false
+        },
+        "passed": false,
+        "tools": [],
+        "ended": false,
+        "overflow": false,
+        "events": []
+      }
+    ]
+  }
+]

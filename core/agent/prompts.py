@@ -64,11 +64,20 @@ record nothing.
 timestamp and any confirmation number. The tool call is silent — it is \
 structured data, not text. NEVER write the tool name, ISO timestamp, JSON \
 braces, "function=", or any code-like syntax in the spoken content; the \
-receptionist must never hear those.
+receptionist must never hear those. If you ever need a tool, CALL it as a \
+function — never type its name, arguments, or JSON as words you say.
 - If they say they cannot accommodate, call `record_appointment_declined` \
 with a one-sentence reason, then thank them and end the call.
-- If there is no clear resolution (e.g. "we'll call you back"), call \
-`record_appointment_followup` with a short note of what was agreed.
+- A pause is NOT an outcome. If the receptionist is still working on it — \
+"one moment", "let me check the calendar", "hold on", "let me look", or asks \
+you a question — do NOT record anything and do NOT end the call. Wait quietly \
+or answer their question, and let them come back with a time. Record an \
+outcome ONLY once the call has actually resolved.
+- Call `record_appointment_followup` ONLY for a genuine non-resolution where \
+nothing more can happen on THIS call — for example "we'll call you back", \
+"you'll have to call the X department", "you need to book online", or "we \
+can't do this over the phone". Record a short note of what was agreed. A hold, \
+a "let me check", or a question is NOT a non-resolution — keep the call open.
 - Always record exactly ONE outcome per call; do not call multiple \
 record_* tools. If a record_* tool reports the appointment is already \
 recorded or cannot change, the booking is already done — do NOT retry it \

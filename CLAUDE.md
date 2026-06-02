@@ -204,11 +204,19 @@ https://callbot.duckdns.org/?relay
    reads the JSON aloud ("function record appointment confirmed
    scheduled time two zero two six dash zero five dash three one T...")
    and the call freezes because the actual tool was never invoked.
-   Fix: the system prompt in `core/agent/prompts.py` now splits
-   read-back and tool call into separate turns. If the bug recurs, the
-   next escalation is a custom Pipecat processor that detects
-   `<function=NAME>{...}</function>` in content, strips it, and
-   synthesizes a tool_calls event downstream.
+   **FIXED (2026-06-03, voice_flow_problem.md V1):** the escalation is now
+   implemented — `voice/tool_call_sanitizer.py` adds a `ToolCallLeakSanitizer`
+   FrameProcessor between the LLM and TTS that buffers each assistant
+   response, detects leaked calls via `core/agent/tool_text.py`
+   `extract_leaked_tool_calls()` (handles `<function=NAME>{json}</function>`,
+   `<function(NAME {json})`, and bare `NAME({json})`), STRIPS them from the
+   spoken text, and fires the REAL tool (`end_call` -> EndTaskFrame upstream,
+   same as the structured path; `record_*`/`get_*` -> the bound
+   `ToolDispatcher`). Wired in `voice/pipeline.py`. The prompt still forbids
+   leaking (now with a blunt one-liner) as defense-in-depth. Note: the TEXT
+   harness `tools/test_call_flows.py` has no Pipecat pipeline, so it still SEES
+   the raw model leak — its `clean_speech` check measures the *model*, not the
+   pipeline; the real fix is covered by `tests/test_tool_call_sanitizer.py`.
 6. **Third-party TURN providers (openrelay, metered.ca free tier) drop
    ICE consent-freshness packets after ~30 seconds**, killing calls
    right when conversation starts. Self-hosted coturn on the same VPS

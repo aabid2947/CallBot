@@ -31,6 +31,7 @@ from core.agent import END_CALL, TOOL_SCHEMAS, ToolDispatcher, build_system_prom
 from core.booking import BookingRequestService
 
 from .config import VoiceSettings, load_voice_settings
+from .tool_call_sanitizer import ToolCallLeakSanitizer
 
 
 @runtime_checkable
@@ -171,6 +172,10 @@ def build_pipeline_task(
             stt,
             aggregators.user(),
             llm,
+            # Rescue tool calls Llama leaks as plain text (V1): strip them from the
+            # spoken line and fire the real tool. Sits between LLM and TTS so TTS
+            # never speaks the raw <function=...> syntax.
+            ToolCallLeakSanitizer(dispatcher),
             tts,
             transport.output(),
             aggregators.assistant(),

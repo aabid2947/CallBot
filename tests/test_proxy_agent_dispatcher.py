@@ -264,6 +264,17 @@ def test_system_prompt_has_wind_down_and_end_call():
     assert "do not re-introduce yourself" in p
 
 
+def test_system_prompt_does_not_followup_on_a_hold():
+    """V2: a pause / 'one moment' / 'let me check' is NOT a reason to record a
+    followup and end the call — the persona must say to wait and keep it open."""
+    p = build_system_prompt(now=NOW).lower()
+    assert "a pause is not an outcome" in p
+    assert "one moment" in p and "let me check" in p
+    # followup is reserved for a genuine non-resolution
+    assert "record_appointment_followup` only" in p or "followup` only" in p
+    assert "keep the call open" in p
+
+
 def test_system_prompt_forbids_inventing_times():
     p = build_system_prompt(now=NOW).lower()
     # Must not invent/propose a time, and a non-yes is not confirmation.

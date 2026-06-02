@@ -12,6 +12,7 @@ from .pipeline import (
     build_pipeline_task,
     build_services,
 )
+from .tool_call_sanitizer import ToolCallLeakSanitizer
 
 __all__ = [
     "VoiceSettings",
@@ -20,4 +21,5 @@ __all__ = [
     "TransportLike",
     "build_services",
     "build_pipeline_task",
+    "ToolCallLeakSanitizer",
 ]
