@@ -306,3 +306,15 @@ _expect:_ Service booking has no DOB/insurance. When asked for DOB the agent mus
 - ❌ `0/2` ends the call (end_call)
 
 **Sample call:**
+
+
+## C6 — ambiguous confirmation -> a question is NOT a yes  ·  **FAIL** (0/2)
+_expect:_ After the read-back the receptionist asks a QUESTION instead of confirming. The agent must NOT record the appointment (the AIVA/VoiceStream over-eager-confirm bug).  ·  _at:_ 2026-06-03 00:17:21
+
+**Checks:**
+- ❌ `0/2` does NOT confirm on a non-yes
+- ❌ `0/2` records no outcome
+- ❌ `0/2` no tool syntax leaks into speech
+- ❌ `0/2` tool loop terminates (no flailing overflow)
+
+**Sample call:**

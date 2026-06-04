@@ -584,5 +584,49 @@
         "events": []
       }
     ]
+  },
+  {
+    "id": "C6",
+    "title": "ambiguous confirmation -> a question is NOT a yes",
+    "repeat": 2,
+    "pass_rate": 0.0,
+    "full_passes": 0,
+    "verdict": "FAIL",
+    "check_pass_counts": {
+      "does NOT confirm on a non-yes": 0,
+      "records no outcome": 0,
+      "no tool syntax leaks into speech": 0,
+      "tool loop terminates (no flailing overflow)": 0
+    },
+    "runs": [
+      {
+        "run": 1,
+        "checks": {
+          "does NOT confirm on a non-yes": false,
+          "records no outcome": false,
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": false
+        },
+        "passed": false,
+        "tools": [],
+        "ended": false,
+        "overflow": false,
+        "events": []
+      },
+      {
+        "run": 2,
+        "checks": {
+          "does NOT confirm on a non-yes": false,
+          "records no outcome": false,
+          "no tool syntax leaks into speech": false,
+          "tool loop terminates (no flailing overflow)": false
+        },
+        "passed": false,
+        "tools": [],
+        "ended": false,
+        "overflow": false,
+        "events": []
+      }
+    ]
   }
 ]
