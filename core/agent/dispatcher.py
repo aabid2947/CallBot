@@ -176,9 +176,16 @@ class ToolDispatcher:
                     "date_of_birth": _date_or_none(view.date_of_birth),
                     "insurance_provider": view.insurance_provider,
                     "insurance_member_id": view.insurance_member_id,
-                    "is_new_patient": view.is_new_patient,
                 }
             )
+            # Only surface new-patient status when it's affirmatively True. Intake
+            # does not reliably collect patient type, so a False here is the column
+            # DEFAULT (unknown) — NOT a stated "returning patient". Presenting that
+            # False as a fact made the agent claim "I've been here before" on a call
+            # where the user never said so. When it's unknown the persona tells the
+            # agent to treat it as a first visit instead.
+            if view.is_new_patient:
+                caller["is_new_patient"] = True
         return {"ok": True, "message": "Caller info.", "caller": caller}
 
     def _get_appointment_request(self, _args: dict) -> dict[str, Any]:

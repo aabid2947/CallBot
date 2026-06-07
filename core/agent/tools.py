@@ -25,7 +25,7 @@ TOOL_SCHEMAS: list[dict] = [
             "name": GET_CALLER_INFO,
             "description": (
                 "Recall the caller's personal details (full name, date of "
-                "birth, phone, email, address, insurance, patient type). "
+                "birth, phone, email, address, insurance). "
                 "Call this before answering receptionist questions about "
                 "WHO is calling. No arguments."
             ),

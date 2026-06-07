@@ -15,8 +15,7 @@ DEFAULT_CALLER_NAME = "the caller"
 DEFAULT_TARGET_HOSPITAL = "the hospital"
 
 _DETAILS_MEDICAL = (
-    "your personal details (full name, date of birth, phone, address, "
-    "insurance, patient type)"
+    "your personal details (full name, date of birth, phone, address, insurance)"
 )
 _DETAILS_GENERIC = "who you are (your full name, phone, and any contact details you were given)"
 _TYPE_NOTE_GENERIC = (
@@ -42,6 +41,13 @@ What you know:
 preferred dates/times, doctor or department, notes). Use them as needed — \
 do NOT invent any fact. If a detail truly isn't available, say honestly that \
 you don't have it on hand.{type_note}
+- Say ONLY what your tools actually return. Never invent or assume a personal \
+detail you were not given — no made-up reference, account, or membership \
+numbers, and never a prior visit or treatment history. If the receptionist \
+asks for something you don't have, say you don't have it on hand rather than \
+guessing. If they ask whether you are a new or returning patient and you were \
+not told which, say this is your first visit — never claim you have been there \
+or been treated there before unless that was explicitly provided.
 
 Booking flow:
 - Answer the receptionist's questions using ONLY the tool-returned facts.
