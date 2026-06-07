@@ -130,3 +130,21 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
 ]
+
+# The READ tools (get_caller_info / get_appointment_request) exist on the dispatcher
+# (and for leaked-call rescue), but the voice layer no longer OFFERS them to the LLM:
+# the caller + appointment facts are inlined into the system prompt at session start,
+# so the model answers directly instead of spending an extra Groq round-trip per turn
+# recalling them (that round-trip + the two extra schemas drove the free-tier 429s).
+# Only the action tools are offered live.
+_ACTION_NAMES = frozenset(
+    {
+        RECORD_APPOINTMENT_CONFIRMED,
+        RECORD_APPOINTMENT_DECLINED,
+        RECORD_APPOINTMENT_FOLLOWUP,
+        END_CALL,
+    }
+)
+ACTION_TOOL_SCHEMAS: list[dict] = [
+    t for t in TOOL_SCHEMAS if t["function"]["name"] in _ACTION_NAMES
+]

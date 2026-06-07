@@ -27,7 +27,13 @@ from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.llm_service import FunctionCallParams, LLMContext
 
-from core.agent import END_CALL, TOOL_SCHEMAS, ToolDispatcher, build_system_prompt
+from core.agent import (
+    ACTION_TOOL_SCHEMAS,
+    END_CALL,
+    TOOL_SCHEMAS,
+    ToolDispatcher,
+    build_system_prompt,
+)
 from core.booking import BookingRequestService
 
 from .config import VoiceSettings, load_voice_settings
@@ -47,9 +53,12 @@ class TransportLike(Protocol):
 
 
 def _function_schemas() -> list[FunctionSchema]:
-    """Convert core's OpenAI-style tool schemas into Pipecat FunctionSchemas."""
+    """Tool schemas OFFERED to the LLM, as Pipecat FunctionSchemas. Only the action
+    tools (record_* / end_call) — the read tools are not offered because the caller +
+    appointment facts are inlined into the system prompt (fewer Groq round-trips +
+    tokens per turn, which is what was tripping the free-tier 429s)."""
     schemas: list[FunctionSchema] = []
-    for tool in TOOL_SCHEMAS:
+    for tool in ACTION_TOOL_SCHEMAS:
         fn = tool["function"]
         params = fn["parameters"]
         schemas.append(
@@ -131,8 +140,9 @@ def build_pipeline_task(
     agent will represent for this entire call. The server (Prompt 10)
     resolves it via `BookingRequestService.latest_active()` and passes it,
     together with `caller_name` + `target_hospital_name` from the same
-    row, so the persona is correctly personalised. Voice itself does not
-    query the DB during build — the dispatcher's tools do, at call time.
+    row, so the persona is correctly personalised. Voice reads the bound
+    row's facts ONCE here (via `dispatcher.known_facts()`) to inline them
+    into the system prompt; record_*/end_call still run through the dispatcher.
 
     Pure assembly — nothing is started here, so it can still be tested in
     isolation with a stub transport and any int id.
@@ -150,6 +160,13 @@ def build_pipeline_task(
     stt, llm, tts = build_services(settings)
     _register_tools(llm, dispatcher)
 
+    # Inline the caller + appointment facts into the system prompt ONCE here, so the
+    # agent answers from them rather than spending a tool round-trip per turn (the
+    # extra calls + schemas were tripping Groq's free-tier 429s). This is the one DB
+    # read voice does at build; if the row isn't found the facts are empty and the
+    # agent simply has nothing to recite.
+    caller_info, appointment_info = dispatcher.known_facts()
+
     context = LLMContext(
         messages=[
             {
@@ -159,6 +176,8 @@ def build_pipeline_task(
                     target_hospital_name=target_hospital_name or settings.business_name,
                     appointment_type=appointment_type,
                     now=now,
+                    caller_info=caller_info,
+                    appointment_info=appointment_info,
                 ),
             }
         ],

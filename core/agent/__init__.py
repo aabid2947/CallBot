@@ -14,6 +14,7 @@ from .prompts import (
 )
 from .tool_text import KNOWN_TOOLS, extract_leaked_tool_calls
 from .tools import (
+    ACTION_TOOL_SCHEMAS,
     END_CALL,
     GET_APPOINTMENT_REQUEST,
     GET_CALLER_INFO,
@@ -31,6 +32,7 @@ __all__ = [
     "DEFAULT_CALLER_NAME",
     "DEFAULT_TARGET_HOSPITAL",
     "TOOL_SCHEMAS",
+    "ACTION_TOOL_SCHEMAS",
     "GET_CALLER_INFO",
     "GET_APPOINTMENT_REQUEST",
     "RECORD_APPOINTMENT_CONFIRMED",

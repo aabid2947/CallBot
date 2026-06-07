@@ -115,6 +115,18 @@ class ToolDispatcher:
     def booking_request_id(self) -> int | None:
         return self._request_id
 
+    def known_facts(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """(caller, appointment) facts for the bound request, to inline into the
+        system prompt at session start — so the agent answers from them instead of
+        spending a tool round-trip per turn. Reuses the same shaping (and patient-type
+        rules) as get_caller_info / get_appointment_request. Empty dicts if unbound /
+        not found."""
+        if self._request_id is None:
+            return {}, {}
+        caller = self._get_caller_info({})
+        appointment = self._get_appointment_request({})
+        return (caller.get("caller") or {}, appointment.get("appointment") or {})
+
     def dispatch(
         self, name: str, arguments: dict[str, Any] | str | None
     ) -> dict[str, Any]:

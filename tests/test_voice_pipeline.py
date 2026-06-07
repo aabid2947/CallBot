@@ -11,7 +11,7 @@ import pytest
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameProcessor
 
-from core.agent import TOOL_SCHEMAS
+from core.agent import ACTION_TOOL_SCHEMAS, TOOL_SCHEMAS
 from core.booking import init_db
 from voice import VoiceConfigError, VoiceSettings, build_pipeline_task
 from voice.pipeline import _function_schemas
@@ -49,17 +49,23 @@ def test_missing_keys_fail_fast(monkeypatch):
 
 
 def test_function_schemas_match_core_tools():
+    # The dispatcher still handles all 6 tools, but the LLM is OFFERED only the 4
+    # action tools (record_* / end_call). The read-tool facts are inlined into the
+    # system prompt instead, to cut Groq round-trips + tokens per turn.
+    assert len(TOOL_SCHEMAS) == 6
     schemas = _function_schemas()
-    assert len(schemas) == len(TOOL_SCHEMAS) == 6
+    assert len(schemas) == len(ACTION_TOOL_SCHEMAS) == 4
     assert {s.name for s in schemas} == {
-        t["function"]["name"] for t in TOOL_SCHEMAS
+        t["function"]["name"] for t in ACTION_TOOL_SCHEMAS
     }
+    assert "get_caller_info" not in {s.name for s in schemas}
 
 
 def test_build_pipeline_task_in_isolation():
     init_db("sqlite://")
-    # Voice build does not query the DB at construction; the dispatcher's
-    # tools do, at call time. A dummy id is enough to exercise assembly.
+    # Voice now reads the bound row's facts once at construction to inline them;
+    # id=1 doesn't exist in this empty DB, so facts come back empty and assembly
+    # still succeeds (nothing to recite). A dummy id is enough to exercise assembly.
     task = build_pipeline_task(
         StubTransport(),
         booking_request_id=1,

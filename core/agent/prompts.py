@@ -1,10 +1,15 @@
 """Agent persona for the Phase 2 proxy caller.
 
 The agent makes an OUTBOUND voice call to a hospital on behalf of a user
-and speaks AS the user in the first person, using only facts returned by
-its tools. The voice layer (Prompt 4 onward) injects the current time and
-the caller / target details at session start so relative times resolve
-correctly.
+and speaks AS the user in the first person, using only facts it was given.
+The voice layer injects the current time at session start.
+
+The caller + appointment facts are INLINED into the system prompt at session
+start (pass `caller_info` / `appointment_info`), so the agent answers the
+receptionist directly instead of spending an LLM tool round-trip per turn to
+recall them — that round-trip, plus the two extra tool schemas, was driving
+Groq free-tier 429 rate-limiting (and the multi-second retry waits). If those
+are omitted, the prompt falls back to describing the read-only tools.
 """
 
 from __future__ import annotations
@@ -23,6 +28,33 @@ _TYPE_NOTE_GENERIC = (
     "of birth, insurance, or medical patient details, and never invent them."
 )
 
+# Read-tools mode (no inlined facts): the agent recalls details via tools.
+_KNOWN_TOOLS = """\
+- You have two read-only tools: call `get_caller_info` to recall {details} and \
+`get_appointment_request` to recall what you are trying to book (reason, \
+preferred dates/times, doctor or department, notes). Use them as needed — \
+do NOT invent any fact. If a detail truly isn't available, say honestly that \
+you don't have it on hand.{type_note}
+- Say ONLY what your tools actually return. Never invent or assume a personal \
+detail you were not given — no made-up reference, account, or membership \
+numbers, and never a prior visit or treatment history. If the receptionist \
+asks for something you don't have, say you don't have it on hand rather than \
+guessing. If they ask whether you are a new or returning patient and you were \
+not told which, say this is your first visit — never claim you have been there \
+or been treated there before unless that was explicitly provided."""
+
+# Inline mode: the facts are embedded below; the agent has no read tools.
+_KNOWN_INLINE = """\
+- These are your own details and exactly what you are booking. Answer the \
+receptionist using ONLY these facts:
+{facts}
+- Say ONLY what is listed above. If they ask for something not listed, say you \
+don't have it on hand — never guess or invent (no made-up reference, account, \
+or membership numbers, and no prior visit or treatment history). If they ask \
+whether you are a new or returning patient and it is not stated above, say this \
+is your first visit — never claim you have been there or been treated there \
+before.{type_note}"""
+
 _PERSONA = """\
 You are calling {target} by voice on behalf of {caller}. Throughout this call \
 you speak AS {caller} in the first person — never as an AI, never about \
@@ -36,21 +68,10 @@ points, emojis, or lists — this is spoken aloud.
 - Greet briefly when they pick up, then say what you are calling about.
 
 What you know:
-- You have two read-only tools: call `get_caller_info` to recall {details} and \
-`get_appointment_request` to recall what you are trying to book (reason, \
-preferred dates/times, doctor or department, notes). Use them as needed — \
-do NOT invent any fact. If a detail truly isn't available, say honestly that \
-you don't have it on hand.{type_note}
-- Say ONLY what your tools actually return. Never invent or assume a personal \
-detail you were not given — no made-up reference, account, or membership \
-numbers, and never a prior visit or treatment history. If the receptionist \
-asks for something you don't have, say you don't have it on hand rather than \
-guessing. If they ask whether you are a new or returning patient and you were \
-not told which, say this is your first visit — never claim you have been there \
-or been treated there before unless that was explicitly provided.
+{known_section}
 
 Booking flow:
-- Answer the receptionist's questions using ONLY the tool-returned facts.
+- Answer the receptionist's questions using ONLY the facts you were given.
 - NEVER invent, guess, or propose an appointment time yourself. A time is \
 real ONLY when the receptionist states a specific day and time during this \
 call. If no time has been offered yet, ask what is available (within your \
@@ -110,19 +131,83 @@ against that, and pass absolute ISO 8601 timestamps to the tool.
 Keep every utterance short enough to say comfortably in one breath or two."""
 
 
+def _line(label: str, value) -> str | None:
+    text = "" if value is None else str(value).strip()
+    return f"  - {label}: {text}" if text else None
+
+
+def _format_facts(caller: dict, appointment: dict) -> str:
+    """Render the bound request's caller + appointment facts as a compact, spoken-
+    friendly block for the system prompt. Empty fields are skipped; patient type is
+    only shown when affirmatively a new patient (the dispatcher omits an unknown
+    default), so the agent never claims a prior visit it was not told about."""
+    lines: list[str] = ["  Your details:"]
+    for label, key in (
+        ("Name", "full_name"),
+        ("Phone", "phone"),
+        ("Email", "email"),
+        ("Address", "address"),
+        ("Other contact", "contact_info"),
+        ("Date of birth", "date_of_birth"),
+    ):
+        row = _line(label, caller.get(key))
+        if row:
+            lines.append(row)
+    provider = (caller.get("insurance_provider") or "").strip() if caller else ""
+    if provider:
+        member = (caller.get("insurance_member_id") or "").strip()
+        lines.append(
+            f"  - Insurance: {provider} (member {member})" if member else f"  - Insurance: {provider}"
+        )
+    if caller.get("is_new_patient"):
+        lines.append("  - You are a new patient (this is your first visit).")
+
+    lines.append("  What you are booking:")
+    reason = _line("Reason", appointment.get("reason"))
+    if reason:
+        lines.append(reason)
+    start = (appointment.get("preferred_date_window_start") or "").strip() if appointment else ""
+    end = (appointment.get("preferred_date_window_end") or "").strip() if appointment else ""
+    if start and end and start != end:
+        lines.append(f"  - Preferred dates: {start} to {end}")
+    elif start:
+        lines.append(f"  - Preferred date: {start}")
+    tod = (appointment.get("preferred_time_of_day") or "").strip() if appointment else ""
+    if tod and tod.lower() != "any":
+        lines.append(f"  - Preferred time of day: {tod}")
+    for label, key in (
+        ("Doctor", "preferred_doctor"),
+        ("Department", "department"),
+        ("Notes", "notes"),
+        ("Calling", "target_hospital_name"),
+    ):
+        row = _line(label, appointment.get(key))
+        if row:
+            lines.append(row)
+    return "\n".join(lines)
+
+
 def build_system_prompt(
     *,
     caller_name: str | None = None,
     target_hospital_name: str | None = None,
     appointment_type: str | None = None,
     now: datetime | None = None,
+    caller_info: dict | None = None,
+    appointment_info: dict | None = None,
 ) -> str:
     """Return the system prompt for the proxy-caller agent.
 
     The persona adapts to `appointment_type`: 'medical' keeps the clinical
-    details (DOB / insurance / patient type); any other type ('meeting',
-    'service', 'other') books a generic appointment and is told NOT to raise
-    or invent medical details.
+    details (DOB / insurance); any other type ('meeting', 'service', 'other')
+    books a generic appointment and is told NOT to raise or invent medical
+    details.
+
+    When `caller_info` / `appointment_info` are provided (dicts shaped like the
+    dispatcher's `get_caller_info` / `get_appointment_request` results — get them
+    via `ToolDispatcher.known_facts()`), the facts are INLINED and the agent is
+    given no read tools. When both are None, the prompt falls back to describing
+    the read-only tools.
     """
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None:
@@ -130,14 +215,16 @@ def build_system_prompt(
     caller = (caller_name or "").strip() or DEFAULT_CALLER_NAME
     target = (target_hospital_name or "").strip() or DEFAULT_TARGET_HOSPITAL
     atype = (appointment_type or "medical").strip().lower()
-    if atype == "medical":
-        details, type_note = _DETAILS_MEDICAL, ""
+    type_note = "" if atype == "medical" else _TYPE_NOTE_GENERIC.format(atype=atype)
+    if caller_info is not None or appointment_info is not None:
+        facts = _format_facts(caller_info or {}, appointment_info or {})
+        known_section = _KNOWN_INLINE.format(facts=facts, type_note=type_note)
     else:
-        details, type_note = _DETAILS_GENERIC, _TYPE_NOTE_GENERIC.format(atype=atype)
+        details = _DETAILS_MEDICAL if atype == "medical" else _DETAILS_GENERIC
+        known_section = _KNOWN_TOOLS.format(details=details, type_note=type_note)
     return _PERSONA.format(
         caller=caller,
         target=target,
         now_iso=current.astimezone(timezone.utc).isoformat(),
-        details=details,
-        type_note=type_note,
+        known_section=known_section,
     )
