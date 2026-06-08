@@ -22,9 +22,11 @@ voicestream/
 │       └── dispatcher.py       # ToolDispatcher: bound to BookingRequestService + request_id; get_caller_info adapts by appointment_type (+ contact_info); end_call = benign ack (real hang-up is in voice/); record_* on an already-resolved booking returns an 'already_recorded' end-the-call signal (not a raw invalid_transition)
 ├── voice/                      # Pipecat pipeline assembly; uses core, transport-agnostic
 │   ├── __init__.py             # Re-exports the public voice API
-│   ├── config.py               # VoiceSettings + load_voice_settings() fail-fast key validation
+│   ├── config.py               # VoiceSettings + load_voice_settings() fail-fast key validation; groq_api_keys = GROQ_API_KEY + GROQ_API_KEY_2..N for rotation
+│   ├── key_rotation.py         # KeyRotator: dependency-free round-robin key selection + per-key cooldown (unit-tested without Pipecat)
+│   ├── rotating_groq.py        # RotatingGroqLLMService(GroqLLMService): one client per Groq key, round-robins per request, cools a key on 429 (Retry-After aware) / parks one rejected on auth, retries on the next
 │   ├── tool_call_sanitizer.py  # ToolCallLeakSanitizer(FrameProcessor): sits LLM->TTS, strips leaked tool-call text so TTS never speaks it + fires the real tool (end_call -> EndTaskFrame upstream; record_*/get_* -> dispatcher) (V1)
-│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM -> ToolCallLeakSanitizer -> Aura TTS; passes appointment_type to the persona; intercepts end_call -> EndTaskFrame (graceful hang-up after goodbye flushes)
+│   └── pipeline.py             # build_pipeline_task(): Deepgram STT -> Groq LLM (rotating across keys when >1) -> ToolCallLeakSanitizer -> Aura TTS; passes appointment_type to the persona; intercepts end_call -> EndTaskFrame (graceful hang-up after goodbye flushes)
 ├── transport/                  # The ONE swappable layer: web/WebRTC now, phone later
 │   ├── __init__.py             # Re-exports the transport API used by the server
 │   └── web.py                  # SmallWebRTC transport + SWAP SEAM (mobile/phone guidance)
@@ -57,6 +59,7 @@ voicestream/
 │   ├── test_proxy_agent_dispatcher.py       # Persona + tool schemas + dispatcher behaviour (incl. V2: a hold is not a followup)
 │   ├── test_tool_call_sanitizer.py          # V1: extract_leaked_tool_calls (pure, all leak syntaxes) + ToolCallLeakSanitizer processor (strips text, ends call / dispatches record_*)
 │   ├── test_voice_pipeline.py               # Pipeline isolation (stub transport)
+│   ├── test_key_rotation.py                 # KeyRotator round-robin + cooldown (pure logic, no Pipecat)
 │   ├── test_server.py                       # Boot, WebRTC negotiation, /api/booking_requests
 │   ├── test_proxy_call_end_to_end.py        # Full proxy call -> on-disk persistence
 │   ├── test_db_backends.py                  # Postgres/Supabase URL normalize + engine hardening

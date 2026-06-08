@@ -18,6 +18,20 @@ class VoiceConfigError(RuntimeError):
     """Raised when required voice configuration is missing/invalid."""
 
 
+def _groq_api_keys(primary: str) -> tuple[str, ...]:
+    """All configured Groq keys, in order: GROQ_API_KEY, then GROQ_API_KEY_2..10.
+    De-duped, blanks dropped. Multiple keys enable round-robin rotation (see
+    RotatingGroqLLMService) so we don't hammer one key into a rate limit."""
+    keys: list[str] = []
+    if primary and primary.strip():
+        keys.append(primary.strip())
+    for n in range(2, 11):
+        value = (os.getenv(f"GROQ_API_KEY_{n}") or "").strip()
+        if value:
+            keys.append(value)
+    return tuple(dict.fromkeys(keys))  # preserve order, drop dups
+
+
 @dataclass(frozen=True)
 class VoiceSettings:
     """Everything the pipeline needs, resolved from the environment."""
@@ -28,6 +42,9 @@ class VoiceSettings:
     stt_model: str
     tts_voice: str
     business_name: str
+    # All Groq keys (primary + GROQ_API_KEY_2..N) for round-robin rotation.
+    # Defaults empty so existing constructions (tests) keep working.
+    groq_api_keys: tuple[str, ...] = ()
 
     @staticmethod
     def from_env() -> "VoiceSettings":
@@ -40,6 +57,7 @@ class VoiceSettings:
             stt_model=os.getenv("STT_MODEL", "nova-3"),
             tts_voice=os.getenv("TTS_VOICE", "aura-2-thalia-en"),
             business_name=os.getenv("BUSINESS_NAME", "our office"),
+            groq_api_keys=_groq_api_keys(core.groq_api_key),
         )
 
 

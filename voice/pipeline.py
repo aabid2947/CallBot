@@ -37,6 +37,7 @@ from core.agent import (
 from core.booking import BookingRequestService
 
 from .config import VoiceSettings, load_voice_settings
+from .rotating_groq import RotatingGroqLLMService
 from .tool_call_sanitizer import ToolCallLeakSanitizer
 
 
@@ -112,10 +113,13 @@ def build_services(
             smart_format=True,
         ),
     )
-    llm = GroqLLMService(
-        api_key=settings.groq_api_key,
-        settings=GroqLLMService.Settings(model=settings.llm_model),
-    )
+    # Multiple Groq keys → round-robin across them (with 429 cooldown) so one
+    # key's per-minute limit doesn't stall the call; one key → plain service.
+    groq_settings = GroqLLMService.Settings(model=settings.llm_model)
+    if len(settings.groq_api_keys) > 1:
+        llm = RotatingGroqLLMService(api_keys=settings.groq_api_keys, settings=groq_settings)
+    else:
+        llm = GroqLLMService(api_key=settings.groq_api_key, settings=groq_settings)
     tts = DeepgramTTSService(
         api_key=settings.deepgram_api_key,
         settings=DeepgramTTSService.Settings(voice=settings.tts_voice),
