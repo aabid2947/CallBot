@@ -37,6 +37,16 @@ def test_strips_function_eq_close_tag_form():
     assert calls == [(END_CALL, {})]
 
 
+def test_strips_function_colon_close_tag_form():
+    # req=18 evidence: Llama leaked end_call with a COLON separator, which the
+    # sanitizer used to miss -> the tag was spoken aloud and the call ended rough.
+    text = "<function:end_call></function>"
+    cleaned, calls = extract_leaked_tool_calls(text)
+    assert "<function" not in cleaned and "end_call" not in cleaned
+    assert cleaned == ""
+    assert calls == [(END_CALL, {})]
+
+
 def test_strips_function_paren_form_with_args():
     # C4 run1 evidence (unclosed paren form)
     text = (

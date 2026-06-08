@@ -5,6 +5,7 @@ Llama 3.3 on Groq intermittently writes a tool call inside the assistant
 `content` using one of a few syntaxes, e.g.::
 
     <function=end_call></function>
+    <function:end_call></function>
     <function=record_appointment_confirmed>{"scheduled_time": "..."}</function>
     <function(record_appointment_declined {"reason": "..."})
     end_call()
@@ -43,8 +44,10 @@ KNOWN_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-# `<function=NAME` or `<function(NAME`  (the two tag-style leaks)
-_TAG_OPEN = re.compile(r"<\s*function\s*[=(]\s*([A-Za-z_]\w*)", re.IGNORECASE)
+# `<function=NAME`, `<function(NAME`, or `<function:NAME`  (the tag-style leaks;
+# Llama emits any of `= ( :` as the separator — the colon form slipped through
+# before and got spoken aloud, e.g. "<function:end_call></function>").
+_TAG_OPEN = re.compile(r"<\s*function\s*[=(:]\s*([A-Za-z_]\w*)", re.IGNORECASE)
 # bare `NAME(`  (the model occasionally writes the call like code)
 _BARE_OPEN = re.compile(r"([A-Za-z_]\w*)\s*\(", re.IGNORECASE)
 # optional trailing `</function>` after the tag form
